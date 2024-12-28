@@ -7,7 +7,9 @@ const PORT = process.env.PORT || 3000;
 
 const pvcMountPath = process.env.PVC_MOUNT_PATH || '/mnt/pvc';
 
+// Serve static files, including images
 app.use(express.static(pvcMountPath));
+app.use('/images', express.static(path.join(__dirname, 'images'))); // Serve images from /images folder
 
 app.get('*', (req, res) => {
   res.send(`
@@ -39,11 +41,15 @@ app.get('*', (req, res) => {
           box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
           display: inline-block;
         }
+        img {
+        max-width: 220px; /* Make the image smaller */
+        margin-bottom: 20px;
+        }
       </style>
     </head>
     <body>
       <div class="content">
-        <img src="images/TV_Logo_Red.png" alt="TV Logo"> <!-- Add logo here -->
+        <img src="/images/TV_Logo_Red.png" alt="TV Logo"> <!-- Add logo here -->
         <h1>Välkommen till Rita bibliotek</h1>
         <p>Static file server running. Ensure files are present in the mounted PVC directory.</p>
       </div>
