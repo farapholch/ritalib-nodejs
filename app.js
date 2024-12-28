@@ -43,7 +43,7 @@ app.get('*', (req, res) => {
     </head>
     <body>
       <div class="content">
-        <img src="/TV_Logo_Red.png" alt="TV Logo"> <!-- Add logo here -->
+        <img src="images/TV_Logo_Red.png" alt="TV Logo"> <!-- Add logo here -->
         <h1>Välkommen till Rita bibliotek</h1>
         <p>Static file server running. Ensure files are present in the mounted PVC directory.</p>
       </div>
