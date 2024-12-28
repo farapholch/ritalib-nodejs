@@ -7,7 +7,6 @@ const PORT = process.env.PORT || 3000;
 
 const pvcMountPath = process.env.PVC_MOUNT_PATH || '/mnt/pvc';
 
-// Serve static files, including images
 app.use(express.static(pvcMountPath));
 app.use('/images', express.static(path.join(__dirname, 'images'))); // Serve images from /images folder
 
