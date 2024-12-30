@@ -1,1 +1,1 @@
-Library handler for Rita 
+Library web for Rita 
