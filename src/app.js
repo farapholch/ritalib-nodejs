@@ -77,7 +77,7 @@ app.get('/', (req, res) => {
           <img src="/images/TV_Logo_Red.png" srcset="/images/TV_Logo_Red.png 1x, /images/TV_Logo_Red@2x.png 2x" alt="TV Logo">
           <h1>Rita bibliotek</h1>
           <p>Här är en samling mallar för Rita.</p>
-          <p class="sub">Klicka på länkarna för att ladda ner</p>        
+          <p class="sub">Klicka på länkarna för att ladda ner en mall.</p>        
           <ul>
             ${fileList}
           </ul>
