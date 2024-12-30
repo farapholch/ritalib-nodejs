@@ -1,0 +1,101 @@
+{
+  "type": "excalidrawlib",
+  "version": 2,
+  "source": "https://excalidraw.com",
+  "libraryItems": [
+    {
+      "status": "unpublished",
+      "elements": [
+        {
+          "id": "udRHNlmyUJ3DACkus46nv",
+          "type": "text",
+          "x": 429,
+          "y": 678.25,
+          "width": 449.64801025390625,
+          "height": 104.99983789995491,
+          "angle": 0,
+          "strokeColor": "#0c8599",
+          "backgroundColor": "transparent",
+          "fillStyle": "solid",
+          "strokeWidth": 2,
+          "strokeStyle": "solid",
+          "roughness": 1,
+          "opacity": 100,
+          "groupIds": [],
+          "frameId": null,
+          "index": "a2",
+          "roundness": null,
+          "seed": 1213277221,
+          "version": 180,
+          "versionNonce": 236026276,
+          "isDeleted": false,
+          "boundElements": [],
+          "updated": 1733596480574,
+          "link": null,
+          "locked": false,
+          "text": "Testlibrary",
+          "fontSize": 83.99987031996393,
+          "fontFamily": 5,
+          "textAlign": "left",
+          "verticalAlign": "top",
+          "containerId": null,
+          "originalText": "Testlibrary",
+          "autoResize": true,
+          "lineHeight": 1.25
+        },
+        {
+          "id": "sBavr4FHkUf5PNWVEeWGF",
+          "type": "arrow",
+          "x": 266.5,
+          "y": 535,
+          "width": 452,
+          "height": 432,
+          "angle": 0,
+          "strokeColor": "#0c8599",
+          "backgroundColor": "transparent",
+          "fillStyle": "solid",
+          "strokeWidth": 2,
+          "strokeStyle": "solid",
+          "roughness": 1,
+          "opacity": 100,
+          "groupIds": [],
+          "frameId": null,
+          "index": "a3",
+          "roundness": {
+            "type": 2
+          },
+          "seed": 1371571307,
+          "version": 54,
+          "versionNonce": 1860018309,
+          "isDeleted": false,
+          "boundElements": [],
+          "updated": 1733508203299,
+          "link": null,
+          "locked": false,
+          "points": [
+            [
+              0,
+              0
+            ],
+            [
+              -42,
+              432
+            ],
+            [
+              410,
+              430
+            ]
+          ],
+          "lastCommittedPoint": null,
+          "startBinding": null,
+          "endBinding": null,
+          "startArrowhead": null,
+          "endArrowhead": "arrow",
+          "elbowed": false
+        }
+      ],
+      "id": "p7Vd6EmtGY60Dl4IA2AcH",
+      "created": 1733596503533
+    }
+  ]
+}

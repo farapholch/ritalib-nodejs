@@ -1,0 +1,163 @@
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    margin-top: 50px;
+    background-color: #f4f4f9; /* Soft background color */
+    color: #333;
+  }
+  
+  h1 {
+    font-family: "Virgil", var(--font-family);
+    font-size: 2em;
+    /*font-family: 'Inter', sans-serif; /* Use the Inter font */
+    color: #9D0000; /* Red color for the title */    
+    text-transform: capitalize;
+    text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1); /* Add subtle shadow to make the text pop */
+    margin-bottom: 20px; /* Space below the heading */    
+  }
+  
+  p {
+    font-size: 1.2em;
+  }
+
+  .sub {
+    font-size: 0.8em;
+  }
+
+  ul {
+    list-style-type: none;
+    padding: 0;
+  }
+  
+  li {
+    margin: 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background-color: #fff;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .file-item {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  
+  .file-info {
+    flex-grow: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .file-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-right: 20px;
+  }
+  
+  .button {
+    padding: 5px 10px;
+    font-size: 14px;
+    color: white;
+    background-color: #9D0000; /* Blue background */
+    border: none;
+    border-radius: 5px;
+    text-decoration: none;
+    transition: background-color 0.3s ease;
+  }
+  
+  .button:hover {
+    background-color: #7c1212; /* Darker blue on hover */
+  }
+  
+  .preview {
+    max-width: 100px;
+    max-height: 100px;
+    margin-right: 15px;
+  }
+  
+  .preview-pdf {
+    width: 100px;
+    height: 100px;
+    border: 1px solid #ddd;
+    margin-right: 15px;
+  }
+  
+  .file-icon {
+    font-size: 50px;
+    margin-right: 15px;
+  }
+  
+  .content {
+    background-color: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: inline-block;
+    width: 100%;
+    max-width: 1000px;
+  }
+  
+  img {
+    max-width: 220px; /* Make the image smaller */
+    margin-bottom: 20px;
+    image-rendering: crisp-edges;
+  }
+  
+  .file-description {
+    font-size: 14px;
+    color: #666;
+    margin-top: 5px;
+    font-style: italic; /* Optional: makes the description italic */
+  }
+
+  /* Media Queries */
+  @media (max-width: 768px) {
+    h1 {
+      font-size: 28px;
+    }
+    .file-item {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .file-info {
+      flex-direction: column;
+      align-items: flex-start;
+      margin-top: 10px;
+    }
+    .file-title {
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .button {
+      margin-top: 10px;
+    }
+    .preview {
+      max-width: 80px;
+      max-height: 80px;
+      margin-right: 0;
+      margin-bottom: 10px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    body {
+      font-size: 14px;
+    }
+    .file-item {
+      padding: 8px;
+    }
+    .button {
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+    img {
+      max-width: 150px;
+    }
+  }
