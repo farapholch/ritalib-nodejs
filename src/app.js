@@ -151,6 +151,11 @@ app.get('/', (req, res) => {
                 <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required onchange="handleFileChange()">
               </div>
 
+              <!-- File details panel displayed above the upload button -->
+              <div id="file-details" style="display: none;">
+                <strong id="file-name"></strong> - <span id="file-status"></span>
+              </div>
+
               <!-- Title input field -->
               <div class="title-container">
                 <label for="title">Titel:</label>
@@ -161,11 +166,6 @@ app.get('/', (req, res) => {
               <div class="description-container">
                 <label for="description">Beskrivning:</label>
                 <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av mallen här..." required></textarea>
-              </div>
-
-              <!-- File details panel displayed above the upload button -->
-              <div id="file-details" style="display: none;">
-                <strong id="file-name"></strong> - <span id="file-status"></span>
               </div>
 
               <div class="button-container">
@@ -190,7 +190,7 @@ app.get('/', (req, res) => {
 
             if (fileDetails && fileName && fileStatus) {
               fileName.textContent = file.name;
-              fileStatus.textContent = 'Pending'; // Set status to Pending
+              fileStatus.textContent = 'Väntar'; // Set status to Pending
               fileDetails.style.display = 'block'; // Show file details container
             }
           } else {
