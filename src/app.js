@@ -1,28 +1,78 @@
-// Rita library
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Define the folder to list files from
-const filesDirectory = path.join(__dirname, '../files'); // Folder for file listing
-const imagesPath = path.join(__dirname, '../images');   // Folder for images
-const publicPath = path.join(__dirname, '../public');  // Folder for static assets like CSS
+// Define directories
+const filesDirectory = path.join(__dirname, '../files'); // Directory for stored files
+const imagesPath = path.join(__dirname, '../images');    // Directory for images
+const publicPath = path.join(__dirname, '../public');    // Static assets like CSS
 
-// Serve static assets (CSS, images, and files)
-app.use(express.static(publicPath));  // Serve static assets like CSS from the public folder
-app.use('/images', express.static(imagesPath));  // Serve images from images folder
-app.use('/files', express.static(filesDirectory));  // Serve files from files folder
+// Ensure the files directory exists
+if (!fs.existsSync(filesDirectory)) {
+  fs.mkdirSync(filesDirectory);
+}
 
-// Predefined descriptions for files (can be dynamic or fetched from a database)
-const fileDescriptions = {
-  "canbantavla.excalidrawlib": "Enkel kanbantavla",
-  "test.txt": "Testfil"  
-};
+// Configure Multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, filesDirectory);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  },
+});
 
-// Route to list files with previews and descriptions
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.excalidrawlib') {
+      cb(null, true); // Accept the file
+    } else {
+      cb(new Error('Only .excalidrawlib files are allowed!')); // Reject invalid files
+    }
+  },
+});
+
+// Serve static assets
+app.use(express.static(publicPath));
+app.use('/images', express.static(imagesPath));
+app.use('/files', express.static(filesDirectory));
+
+// Route to handle file uploads
+app.post('/upload', upload.single('file'), (req, res) => {
+  const file = req.file;
+  const description = req.body.description; // Capture the description
+
+  if (!file) {
+    return res.status(400).send('No file uploaded.');
+  }
+
+  // Rename and move the file to the main directory
+  const newFilePath = path.join(filesDirectory, file.originalname);
+  fs.renameSync(file.path, newFilePath);
+
+  // Optionally save the description in a database or a separate file for future reference
+  const descriptionFilePath = path.join(filesDirectory, `${file.originalname}.txt`);
+  fs.writeFileSync(descriptionFilePath, description);
+
+  res.redirect('/'); // Redirect back to the main page
+});
+
+// Error handling for file uploads
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err.message) {
+    res.status(400).send(err.message || 'File upload error.');
+  } else {
+    next(err);
+  }
+});
+
+// Route to list files
 app.get('/', (req, res) => {
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -31,56 +81,91 @@ app.get('/', (req, res) => {
       return;
     }
 
-    // Generate an HTML page with previews and download links
+    // Generate an HTML page
     const fileList = files.map(file => {
-      const fileExtension = path.extname(file).toLowerCase();
       const fileNameWithoutExt = path.parse(file).name;
-      const fileDescription = fileDescriptions[file] || "No description available."; // Default description if none found
-
-      let preview;
-
-      if (['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(fileExtension)) {
-        // Show image preview
-        preview = `<img src="/files/${encodeURIComponent(file)}" alt="${fileNameWithoutExt}" class="preview">`;
-      } else if (fileExtension === '.pdf') {
-        // Show PDF preview link
-        preview = `<iframe src="/files/${encodeURIComponent(file)}" class="preview-pdf" title="${fileNameWithoutExt}"></iframe>`;
-      } else {
-        // For other files, show a generic preview
-        preview = `<div class="file-icon">📄</div>`;
-      }
 
       return `
         <li class="file-item">
-          ${preview}
+          <div class="file-icon">📄</div>
           <div class="file-info">
             <strong class="file-title">${fileNameWithoutExt}</strong>
-            <p class="file-description">${fileDescription}</p> <!-- Description text -->
             <a href="/files/${encodeURIComponent(file)}" download class="button">Ladda ner</a>
           </div>
         </li>
       `;
-    }).join('');  // Combine all file items into one string
+    }).join('');
 
-    res.send(`
-      <!DOCTYPE html>
+    res.send(`<!DOCTYPE html>
       <html lang="en">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Rita Bibliotek</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="/css/styles.css"> <!-- Correct path to external CSS -->
+        <link rel="stylesheet" href="/css/styles.css">
       </head>
       <body>
         <div class="content">
-          <img src="/images/TV_Logo_Red.png" srcset="/images/TV_Logo_Red.png 1x, /images/TV_Logo_Red@2x.png 2x" alt="TV Logo">
+          <img src="/images/TV_Logo_Red.png" alt="Logo">
           <h1>Rita bibliotek</h1>
+          <form action="/upload" method="POST" enctype="multipart/form-data">
+      <div class="upload-group">
+        <div class="file-upload-container">
+          <label for="file-upload" class="custom-file-upload button">
+            Välj och ladda upp
+          </label>
+          <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required onchange="handleFileChange()"> <!-- Added onchange event -->
+        </div>
+
+        <div class="description-container">
+          <label for="description">Beskrivning:</label>
+          <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av filen här..." required></textarea>
+        </div>
+
+        <div class="button-container">
+          <button type="submit" class="button" id="upload-button" disabled>Ladda upp</button>
+        </div>
+      </div>
+    </form>
+
+    <script>
+      // When a file is selected, update the UI
+      function handleFileChange() {
+        const fileInput = document.getElementById('file-upload');
+        const uploadButton = document.getElementById('upload-button');
+        const fileDetails = document.getElementById('file-details');
+        const fileName = document.getElementById('file-name');
+        const fileStatus = document.getElementById('file-status');
+
+        const file = fileInput.files[0];
+        if (file) {
+          fileName.textContent = file.name;
+          fileStatus.textContent = 'Pending'; // Set status to Pending
+          fileDetails.style.display = 'block'; // Show file details container
+          // Enable upload button only if the description is also filled
+          const descriptionField = document.getElementById('description');
+          if (descriptionField.value.trim() !== '') {
+            uploadButton.disabled = false; // Enable the button when the description is filled
+          }
+        } else {
+          fileDetails.style.display = 'none'; // Hide if no file selected
+          uploadButton.disabled = true; // Disable the button if no file is selected
+        }
+
+        // Enable or disable the upload button based on description field
+        document.getElementById('description').addEventListener('input', () => {
+          if (descriptionField.value.trim() !== '') {
+            uploadButton.disabled = false; // Enable the button when the description is filled
+          } else {
+            uploadButton.disabled = true; // Disable the button if description is empty
+          }
+        });
+      }
+    </script>
           <p>Här är en samling mallar för Rita.</p>
-          <p class="sub">Klicka på länkarna för att ladda ner en mall.</p>        
-          <ul>
-            ${fileList}
-          </ul>
+          <p class="sub">Klicka på länkarna för att ladda ner</p>
+          <ul>${fileList}</ul>
         </div>
       </body>
       </html>
@@ -88,7 +173,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Start the server
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`Serving files from ${filesDirectory}`);
