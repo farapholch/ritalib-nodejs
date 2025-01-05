@@ -45,8 +45,6 @@ app.use('/files', express.static(filesDirectory));
 
 // Middleware to parse form data
 app.use(express.urlencoded({ extended: true }));
-
-// Route to handle file uploads
 app.post('/upload', upload.single('file'), (req, res) => {
   const file = req.file;
   const title = req.body.title; // Capture the title
@@ -56,18 +54,29 @@ app.post('/upload', upload.single('file'), (req, res) => {
     return res.status(400).send('No file uploaded.');
   }
 
-  // Rename and move the file to the main directory
-  const newFilePath = path.join(filesDirectory, file.originalname);
+  // Sanitize the title to remove invalid characters for filenames
+  const sanitizedTitle = title ? title.trim().replace(/[<>:"/\\|?*]+/g, '') : 'Untitled'; // Remove invalid characters
+
+  // Get the file extension
+  const extname = path.extname(file.originalname);
+
+  // Create a new filename using the sanitized title and the original file extension
+  const newFileName = sanitizedTitle + extname;
+
+  // Define the new file path
+  const newFilePath = path.join(filesDirectory, newFileName);
+
+  // Rename and move the file to the new path
   fs.renameSync(file.path, newFilePath);
 
-  // Save title as a separate text file
-  const titleFilePath = path.join(filesDirectory, `${path.parse(file.originalname).name}_title.txt`);
+  // Save title as a separate text file (optional, if you still want the title saved separately)
+  const titleFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_title.txt`);
   if (title && title.trim()) {
     fs.writeFileSync(titleFilePath, title.trim()); // Save title as text
   }
 
   // Save description as a separate text file
-  const descriptionFilePath = path.join(filesDirectory, `${path.parse(file.originalname).name}_description.txt`);
+  const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
   if (description && description.trim()) {
     fs.writeFileSync(descriptionFilePath, description.trim()); // Save description as text
   }
