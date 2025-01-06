@@ -8,14 +8,14 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 
-# Copy the source files to the container
-COPY src /usr/src/app/src
-COPY images /usr/src/app/images
-COPY files /usr/src/app/files
-COPY ./public /usr/src/app/public
+# Copy the entire project directory (excluding files in .dockerignore)
+COPY . .
+
+# Build the TypeScript application (if applicable)
+RUN npm run build
 
 # Expose the application port
 EXPOSE 3000
 
-# Start the application from the src directory
-CMD ["node", "src/app.js"]
+# Start the application
+CMD ["npm", "run", "start"]
