@@ -222,6 +222,7 @@ app.get('/', (_req: Request, res: Response) => {
         <title>Rita Mallar</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
+        <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
       </head>
       <body>
         <div class="content">
