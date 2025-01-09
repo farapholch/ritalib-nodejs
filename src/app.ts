@@ -2,7 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer, { MulterError } from 'multer';
-import fileType from 'file-type';
+import cors from 'cors';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,37 +33,48 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
+    const allowedExtension = '.excalidrawlib'; // Define the only allowed extension
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.excalidrawlib') {
+
+    if (ext === allowedExtension) {
       cb(null, true); // Accept the file
     } else {
-      cb(new Error('Enbart .excalidrawlib filer är tillåtna!')); // Reject invalid files
+      cb(new Error(`Invalid file type. Only ${allowedExtension} files are allowed.`)); // Reject files with other extensions
     }
+  },
+  limits: {
+    fileSize: 1 * 1024 * 1024, // 1 MB limit in bytes
   },
 });
 
-// Serve static assets
+// Allow all origins
+const corsOptions = {
+  origin: '*',
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.options('*', cors(corsOptions));
+
+// Serve other static assets
+app.use(cors(corsOptions));
 app.use(express.static(publicPath));
 app.use('/images', express.static(imagesPath));
-app.use('/files', express.static(filesDirectory));
-
-// Middleware to parse form data
-app.use(express.urlencoded({ extended: true }));
+app.use('/files', cors(corsOptions), express.static(filesDirectory));
 
 // Function to check if a file title already exists
 const checkIfTitleExists = (title: string): boolean => {
   const existingFiles = fs.readdirSync(filesDirectory);
-  const sanitizedTitle = title.trim().replace(/[<>:"/\\|?*]+/g, ''); // Clean the title
+
+  // Trim title and from blank space
+  const sanitizedTitle = title
+  .trim()
+  .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
+  .replace(/[<>:"/\\|?*]+/g, ''); // Clean the title of invalid characters
+
   const titleFileName = `${sanitizedTitle}.excalidrawlib`; // Append the correct extension
 
   return existingFiles.includes(titleFileName); // Check if the sanitized title already exists
-};
-
-const validateFile = async (filePath) => {
-  const type = await fileType.fromFile(filePath);
-  if (type?.mime !== 'application/json') {
-    throw new Error('Invalid file type!');
-  }
 };
 
 // Handle file uploads
@@ -77,6 +88,17 @@ app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Mult
     return;  // Ensure no further code runs after sending the response
   }
 
+  try {
+      // Read the file content to validate JSON
+      const fileContent = fs.readFileSync(file.path, 'utf-8');
+      JSON.parse(fileContent); // Validate JSON by attempting to parse it
+    } catch (err) {
+      // If the file is not valid JSON, delete it and return an error
+      fs.unlinkSync(file.path);
+      res.status(400).send('Invalid file content. File must contain valid JSON.');
+      return;
+    }
+
   // Check if the title is empty or if it exists already
   if (!title) {
     title = 'Untitled';  // Default title if none is provided
@@ -84,12 +106,19 @@ app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Mult
 
   // Sanitize the title and check for conflicts
   const sanitizedTitle = title.trim().replace(/[<>:"/\\|?*]+/g, '');
+
+  const MAX_TITLE_LENGTH = 30;
   
+  if (sanitizedTitle.length > MAX_TITLE_LENGTH) {
+    res.status(400).send(`Title is too long. Maximum length is ${MAX_TITLE_LENGTH} characters.`);
+    return; // Stop further processing if the title is too long
+  }
+
   if (checkIfTitleExists(sanitizedTitle)) {
     console.log(`File with title "${sanitizedTitle}" already exists.`);
     res.status(400).send('Mallen finns redan, vänligen välj ett annat namn');
     return;  // Stop further processing if the title is taken
-  }
+  }  
 
   // Get the file extension
   const extname = path.extname(file.originalname);
@@ -109,19 +138,36 @@ app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Mult
     if (title && title.trim()) {
       fs.writeFileSync(titleFilePath, title.trim()); // Save title as text
     }
+    
+    const MAX_DESCRIPTION_LENGTH = 150; // Adjust as needed
 
-    // Save description as a separate text file
-    const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
-    if (description && description.trim()) {
-      fs.writeFileSync(descriptionFilePath, description.trim()); // Save description as text
+    // Validate and sanitize the description
+    if (description) {
+        // Trim and sanitize the description
+        const sanitizedDescription = description
+            .trim()
+            .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
+            .replace(/[\r\n<>]/g, ''); // Remove unwanted characters like newlines and HTML tags
+
+        if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
+            res.status(400).send(`Description is too long. Maximum length is ${MAX_DESCRIPTION_LENGTH} characters.`);
+            return; // Stop further processing if the description is too long
+        }
+
+        // Save description as a separate text file
+        const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
+        fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
     }
+
+    console.log(`${titleFilePath} was saved`);
 
     // Send a redirect response without returning the response object
     res.redirect('/'); // Redirect back to the main page
-  } catch (error) {
+
+} catch (error) {
     console.error('Error processing file upload:', error);
     res.status(500).send('Internal server error');
-  }
+}
 });
 
 // Error handling for file uploads
@@ -132,6 +178,24 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
+
+// Serve file from /files/:filename
+app.get('/files/:filename', (req: Request, res: Response, next: NextFunction) => {
+  const { filename } = req.params;
+  console.log(`Request for file: ${filename}`);
+
+  // Check if the file exists in the directory
+  const filePath = path.join(filesDirectory, filename);
+
+  if (fs.existsSync(filePath)) {
+    // Serve the file
+    res.sendFile(filePath);
+  } else {
+    // Handle file not found
+    res.status(404).send('File not found');
+  }
+});
+
 // Route to list files with pagination and search
 app.get('/', (_req: Request, res: Response) => {
   // Get the current page and search query from query parameters
@@ -183,7 +247,6 @@ app.get('/', (_req: Request, res: Response) => {
       const titleFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_title.txt`);
       const descriptionFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_description.txt`);
 
-      // Read the title and description from respective .txt files, if they exist
       let title = 'Untitled';  // Default title when no title is found
       let description = 'No description available';  // Default description when no description is found
 
@@ -193,9 +256,9 @@ app.get('/', (_req: Request, res: Response) => {
         if (titleFromFile) {
           title = titleFromFile;
         }
-      }
+      }    
 
-      // Read description file and update description if it exists
+      // Read description file and update description if it exists and is non-empty
       if (fs.existsSync(descriptionFilePath)) {
         const descriptionFromFile = fs.readFileSync(descriptionFilePath, 'utf-8').trim();
         if (descriptionFromFile) {
@@ -203,17 +266,46 @@ app.get('/', (_req: Request, res: Response) => {
         }
       }
 
+      const baseLibraryUrl = process.env.BASE_LIBRARY_URL;
+      const baseApp = process.env.BASE_APP;
+
+      // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
+      // const baseApp = 'rita-utv.sp.trafikverket.se';
+      const excalidrawLink = `https://${baseApp}?addLibrary=${encodeURIComponent(`${baseLibraryUrl}/files/${file}`)}`;
+
       return ` 
         <li class="file-item">
           <div class="file-icon">📄</div>
           <div class="file-info">
             <strong class="file-title">${title}</strong>
-            <p class="file-description">${description}</p>
-            <a href="/files/${encodeURIComponent(file)}" download class="button">Ladda ner</a>
+            <p class="file-description">${description}</p>            
+            <a href="${excalidrawLink}" class="button" onclick="trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
           </div>
         </li>
       `;
     }).join(' ');
+
+    // JavaScript to append token dynamically when clicked
+    function appendTokenToExcalidrawLink(fileUrl: string): void {
+      const idToken = new URLSearchParams(window.location.hash.slice(1)).get('token'); // Get token from the URL hash
+
+      if (idToken) {
+        // If token exists, append it to the Excalidraw link
+        const excalidrawLinkWithToken = `https://rita.sp.trafikverket.se?library=${encodeURIComponent(fileUrl)}&token=${idToken}`;
+        
+        // Select the link element
+        const link = document.querySelector('a[href="'+encodeURIComponent(fileUrl)+'"]');
+        
+        if (link) { // Ensure the link is not null
+          // Cast to HTMLAnchorElement to access the href property
+          (link as HTMLAnchorElement).href = excalidrawLinkWithToken;  // Update the link with the token
+        } else {
+          console.error('Link element not found');
+        }
+      } else {
+        console.error('Token not found in URL');
+      }
+    }
 
     // Generate pagination links
     const totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
@@ -227,22 +319,21 @@ app.get('/', (_req: Request, res: Response) => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Rita Mallar</title>
+        <title>Rita Bibliotek</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
-        <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
       </head>
       <body>
         <div class="content">
           <img src="/images/TV_Logo_Red.png" alt="Logo">
-          <h1>Rita Mallar</h1>
+          <h1>Rita Bibliotek</h1>
 
-          <p>Här är en samling mallar för Rita.</p>
-          <p class="sub">Klicka på länkarna för att ladda ner</p>
+          <p>Här är en samling symboler som kan användas i Rita.</p>
+          <p class="sub">Klicka på länkarna för att lägga till</p>
 
           <!-- Search Form -->
           <form method="GET" action="/">
-            <input type="text" name="search" placeholder="Sök efter mallar..." value="${searchQuery}">
+            <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">
             <button type="submit" class="button">Sök</button>
           </form>
 
@@ -260,7 +351,7 @@ app.get('/', (_req: Request, res: Response) => {
             <div class="upload-group">
               <div class="file-upload-container">
                 <label for="file-upload" class="custom-file-upload button">
-                  Välj mall och ladda upp
+                  Lägg till biblioteksfil
                 </label>
                 <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
               </div>
@@ -276,11 +367,11 @@ app.get('/', (_req: Request, res: Response) => {
 
               <div class="description-container">
                 <label for="description">Beskrivning:</label>
-                <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av mallen här..." required></textarea>
+                <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av biblioteket här..." required></textarea>
               </div>
 
               <div class="button-container">
-                <button type="submit" class="button">Ladda upp</button>
+                <button type="submit" class="button">Spara</button>
               </div>
 
               <!-- Display the status "väntar" after file upload -->
