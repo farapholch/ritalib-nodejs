@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer, { MulterError } from 'multer';
+import fileType from 'file-type';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,13 @@ const checkIfTitleExists = (title: string): boolean => {
   const titleFileName = `${sanitizedTitle}.excalidrawlib`; // Append the correct extension
 
   return existingFiles.includes(titleFileName); // Check if the sanitized title already exists
+};
+
+const validateFile = async (filePath) => {
+  const type = await fileType.fromFile(filePath);
+  if (type?.mime !== 'application/json') {
+    throw new Error('Invalid file type!');
+  }
 };
 
 // Handle file uploads
