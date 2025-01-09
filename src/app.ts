@@ -3,7 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import multer, { MulterError } from 'multer';
 import cors from 'cors';
-import fileType from 'file-type';
+import sanitizeHtml from 'sanitize-html';
+import rateLimit from 'express-rate-limit';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -48,6 +49,17 @@ const upload = multer({
   },
 });
 
+const validateFileContent = (filePath: string): boolean => {
+  try {
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    JSON.parse(fileContent); // Validate JSON
+    return true;
+  } catch (err) {
+    fs.unlinkSync(filePath); // Clean up the invalid file
+    return false;
+  }
+};
+
 // Allow all origins
 const corsOptions = {
   origin: '*',
@@ -78,15 +90,26 @@ const checkIfTitleExists = (title: string): boolean => {
   return existingFiles.includes(titleFileName); // Check if the sanitized title already exists
 };
 
-const validateFile = async (filePath) => {
-  const type = await fileType.fromFile(filePath);
-  if (type?.mime !== 'application/json') {
-    throw new Error('Invalid file type!');
-  }
+const sanitizeText = (text: string, maxLength: number): string => {
+  // Trim the text, collapse multiple spaces into one, and remove invalid characters
+  const sanitized = text
+    .trim()
+    .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
+    .replace(/[<>:"/\\|?*]+/g, '') // Remove invalid filename characters
+    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters (ASCII 0-31, 127)
+    .substring(0, maxLength); // Ensure the text does not exceed the max length
+
+  return sanitized;
 };
 
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 10,  // Limit to 10 requests per 15 minutes
+  message: 'Too many upload requests, please try again later.',
+});
 // Handle file uploads
-app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Multer.File }, res: Response): void => {
+app.post('/upload', uploadLimiter, upload.single('file'), (req: Request & { file?: Express.Multer.File }, res: Response): void => {
   const file = req.file;
   let title = req.body.title as string; // Capture the title
   const description = req.body.description as string; // Capture the description
@@ -96,43 +119,40 @@ app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Mult
     return;  // Ensure no further code runs after sending the response
   }
 
-  try {
-      // Read the file content to validate JSON
-      const fileContent = fs.readFileSync(file.path, 'utf-8');
-      JSON.parse(fileContent); // Validate JSON by attempting to parse it
-    } catch (err) {
-      // If the file is not valid JSON, delete it and return an error
-      fs.unlinkSync(file.path);
-      res.status(400).send('Invalid file content. File must contain valid JSON.');
-      return;
-    }
+  // Validate the file content
+  const isValidContent = validateFileContent(file.path);
+  if (!isValidContent) {
+    fs.unlinkSync(file.path); // Delete the file if it's invalid
+    res.status(400).send('Felaktig information. Filen måste innehålla validerad JSON :).');
+    return;
+  }
 
-  // Check if the title is empty or if it exists already
+  // Ensure title is provided
   if (!title) {
     title = 'Untitled';  // Default title if none is provided
   }
 
-  // Sanitize the title and check for conflicts
-  const sanitizedTitle = title.trim().replace(/[<>:"/\\|?*]+/g, '');
-
   const MAX_TITLE_LENGTH = 30;
-  
-  if (sanitizedTitle.length > MAX_TITLE_LENGTH) {
-    res.status(400).send(`Title is too long. Maximum length is ${MAX_TITLE_LENGTH} characters.`);
-    return; // Stop further processing if the title is too long
-  }
+  const sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
 
+  // Check if title already exists in the directory
   if (checkIfTitleExists(sanitizedTitle)) {
     console.log(`File with title "${sanitizedTitle}" already exists.`);
+    fs.unlinkSync(file.path);  // Delete the temporary file
     res.status(400).send('Mallen finns redan, vänligen välj ett annat namn');
-    return;  // Stop further processing if the title is taken
-  }  
+    return; // Stop further processing if the title is already taken
+  }
 
-  // Get the file extension
-  const extname = path.extname(file.originalname);
+  // **SANITIZED FILE PATH CHECK**
+  const safeFilePath = path.resolve(filesDirectory, sanitizedTitle + '.excalidrawlib');
+  if (!safeFilePath.startsWith(filesDirectory)) {
+    fs.unlinkSync(file.path);  // Delete the temporary file
+    res.status(400).send('Invalid file path.');
+    return; // Explicitly return to ensure no further code is executed
+  }
 
-  // Create a new filename using the sanitized title and the original file extension
-  const newFileName = sanitizedTitle + extname;
+  // Get the file extension and create a new filename
+  const newFileName = sanitizedTitle + path.extname(file.originalname);
 
   // Define the new file path
   const newFilePath = path.join(filesDirectory, newFileName);
@@ -141,41 +161,46 @@ app.post('/upload', upload.single('file'), (req: Request & { file?: Express.Mult
     // Rename and move the file to the new path
     fs.renameSync(file.path, newFilePath);
 
+    // Log the upload event with the file name
+    console.log(`File uploaded: ${newFileName}`);
+    
     // Save title as a separate text file (optional, if you still want the title saved separately)
     const titleFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_title.txt`);
     if (title && title.trim()) {
       fs.writeFileSync(titleFilePath, title.trim()); // Save title as text
     }
-    
-    const MAX_DESCRIPTION_LENGTH = 150; // Adjust as needed
+
+    const MAX_DESCRIPTION_LENGTH = 150;
+
+    // Sanitize description to prevent HTML injection
+    const sanitizedDescription = sanitizeHtml(description, {
+      allowedTags: [],  // No HTML tags allowed
+      allowedAttributes: {}  // No attributes allowed
+    });
 
     // Validate and sanitize the description
-    if (description) {
-        // Trim and sanitize the description
-        const sanitizedDescription = description
-            .trim()
-            .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-            .replace(/[\r\n<>]/g, ''); // Remove unwanted characters like newlines and HTML tags
-
-        if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
-            res.status(400).send(`Description is too long. Maximum length is ${MAX_DESCRIPTION_LENGTH} characters.`);
-            return; // Stop further processing if the description is too long
-        }
-
-        // Save description as a separate text file
-        const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
-        fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
+    if (sanitizedDescription) {
+      const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
+      fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
     }
 
     console.log(`${titleFilePath} was saved`);
 
     // Send a redirect response without returning the response object
     res.redirect('/'); // Redirect back to the main page
+    return; // Explicitly return to stop further execution
 
-} catch (error) {
+  } catch (error) {
     console.error('Error processing file upload:', error);
     res.status(500).send('Internal server error');
-}
+    return; // Return after error response
+
+  } finally {
+    // Cleanup: Delete the temporary file if it was still present
+    if (file && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path); // Ensure the temporary file is deleted
+    }
+  }
 });
 
 // Error handling for file uploads
@@ -190,12 +215,15 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
 // Serve file from /files/:filename
 app.get('/files/:filename', (req: Request, res: Response, next: NextFunction) => {
   const { filename } = req.params;
-  console.log(`Request for file: ${filename}`);
+  console.log(`Request for file: ${filename}`);  // Log when a file is being downloaded
 
   // Check if the file exists in the directory
   const filePath = path.join(filesDirectory, filename);
 
   if (fs.existsSync(filePath)) {
+    // Log the download event
+    console.log(`File being downloaded: ${filename}`);
+
     // Serve the file
     res.sendFile(filePath);
   } else {
