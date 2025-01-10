@@ -5,6 +5,7 @@ import multer, { MulterError } from 'multer';
 import cors from 'cors';
 import sanitizeHtml from 'sanitize-html';
 import rateLimit from 'express-rate-limit';
+import expressBasicAuth from 'express-basic-auth';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +17,7 @@ const publicPath = path.join(__dirname, '../public');    // Static assets like C
 
 // Pagination configuration
 const FILES_PER_PAGE = 5;  // Set the number of files per page
+
 
 // Ensure the files directory exists
 if (!fs.existsSync(filesDirectory)) {
@@ -45,7 +47,7 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 1 * 1024 * 1024, // 1 MB limit in bytes
+    fileSize: 10 * 1024 * 1024, // 10 MB limit in bytes
   },
 });
 
@@ -68,12 +70,22 @@ const corsOptions = {
 };
 
 app.options('*', cors(corsOptions));
-
+app.set('trust proxy', true);
 // Serve other static assets
 app.use(cors(corsOptions));
 app.use(express.static(publicPath));
 app.use('/images', express.static(imagesPath));
 app.use('/files', cors(corsOptions), express.static(filesDirectory));
+
+// Define a basic password for the /admin page
+const ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
+
+// Basic authentication middleware
+app.use('/admin', expressBasicAuth({
+  users: { 'admin': ADMIN_PASSWORD },
+  challenge: true, // Prompts for username/password if not provided
+  realm: 'Admin Area' // A message that will appear in the login prompt
+}));
 
 // Function to check if a file title already exists
 const checkIfTitleExists = (title: string): boolean => {
@@ -83,7 +95,7 @@ const checkIfTitleExists = (title: string): boolean => {
   const sanitizedTitle = title
   .trim()
   .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-  .replace(/[<>:"/\\|?*]+/g, ''); // Clean the title of invalid characters
+  .replace(/[^a-zA-Z0-9\s\-_.]/g, ''); // Allow only letters, numbers, spaces, hyphen, underscore, and period
 
   const titleFileName = `${sanitizedTitle}.excalidrawlib`; // Append the correct extension
 
@@ -91,17 +103,16 @@ const checkIfTitleExists = (title: string): boolean => {
 };
 
 const sanitizeText = (text: string, maxLength: number): string => {
-  // Trim the text, collapse multiple spaces into one, and remove invalid characters
-  const sanitized = text
+  const invalidCharactersPattern = /[^a-zA-Z0-9\s\-_.åäöÅÄÖ]/; // Define invalid characters
+  if (invalidCharactersPattern.test(text)) {
+    throw new Error('Titeln innehåller ogiltiga tecken. Använd endast bokstäver, siffror, mellanslag, bindestreck, understreck och punkter.');
+  }
+  
+  return text
     .trim()
     .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-    .replace(/[<>:"/\\|?*]+/g, '') // Remove invalid filename characters
-    .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters (ASCII 0-31, 127)
     .substring(0, maxLength); // Ensure the text does not exceed the max length
-
-  return sanitized;
 };
-
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
@@ -116,20 +127,20 @@ app.post('/upload', uploadLimiter, upload.single('file'), (req: Request & { file
 
   if (!file) {
     res.status(400).send('No file uploaded.');
-    return;  // Ensure no further code runs after sending the response
+    return; // Stop further execution
   }
 
   // Validate the file content
   const isValidContent = validateFileContent(file.path);
   if (!isValidContent) {
     fs.unlinkSync(file.path); // Delete the file if it's invalid
-    res.status(400).send('Felaktig information. Filen måste innehålla validerad JSON :).');
+    res.status(400).send('Invalid file content. The file must contain validated JSON.');
     return;
   }
 
   // Ensure title is provided
   if (!title) {
-    title = 'Untitled';  // Default title if none is provided
+    title = 'Untitled'; // Default title if none is provided
   }
 
   const MAX_TITLE_LENGTH = 30;
@@ -138,67 +149,66 @@ app.post('/upload', uploadLimiter, upload.single('file'), (req: Request & { file
   // Check if title already exists in the directory
   if (checkIfTitleExists(sanitizedTitle)) {
     console.log(`File with title "${sanitizedTitle}" already exists.`);
-    fs.unlinkSync(file.path);  // Delete the temporary file
-    res.status(400).send('Mallen finns redan, vänligen välj ett annat namn');
-    return; // Stop further processing if the title is already taken
+    fs.unlinkSync(file.path); // Delete the temporary file
+    res.status(400).send('A template with this name already exists. Please choose a different name.');
+    return; // Stop further processing
   }
 
   // **SANITIZED FILE PATH CHECK**
   const safeFilePath = path.resolve(filesDirectory, sanitizedTitle + '.excalidrawlib');
   if (!safeFilePath.startsWith(filesDirectory)) {
-    fs.unlinkSync(file.path);  // Delete the temporary file
+    fs.unlinkSync(file.path); // Delete the temporary file
     res.status(400).send('Invalid file path.');
-    return; // Explicitly return to ensure no further code is executed
+    return; // Stop further execution
   }
 
-  // Get the file extension and create a new filename
+  // Define the new file name and path
   const newFileName = sanitizedTitle + path.extname(file.originalname);
-
-  // Define the new file path
   const newFilePath = path.join(filesDirectory, newFileName);
 
   try {
-    // Rename and move the file to the new path
+    // Move the file to the new path
     fs.renameSync(file.path, newFilePath);
 
-    // Log the upload event with the file name
+    // Log the upload event
     console.log(`File uploaded: ${newFileName}`);
-    
-    // Save title as a separate text file (optional, if you still want the title saved separately)
+
+    // Save the title as a separate text file (optional)
     const titleFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_title.txt`);
-    if (title && title.trim()) {
-      fs.writeFileSync(titleFilePath, title.trim()); // Save title as text
+    if (title.trim()) {
+      fs.writeFileSync(titleFilePath, title.trim());
     }
 
+    // Validate and sanitize the description
     const MAX_DESCRIPTION_LENGTH = 150;
-
-    // Sanitize description to prevent HTML injection
     const sanitizedDescription = sanitizeHtml(description, {
-      allowedTags: [],  // No HTML tags allowed
-      allowedAttributes: {}  // No attributes allowed
+      allowedTags: [], // No HTML tags allowed
+      allowedAttributes: {} // No attributes allowed
     });
 
-    // Validate and sanitize the description
+    if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
+      fs.unlinkSync(newFilePath); // Delete the uploaded file if the description is invalid
+      res.status(400).send(`Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`);
+      return;
+    }
+
     if (sanitizedDescription) {
       const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
       fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
     }
 
-    console.log(`${titleFilePath} was saved`);
-
-    // Send a redirect response without returning the response object
-    res.redirect('/'); // Redirect back to the main page
-    return; // Explicitly return to stop further execution
+    // Redirect back to the main page
+    res.redirect('/');
+    console.log(`Title saved: ${titleFilePath}`);
+    console.log(`Description saved: ${sanitizedDescription}`);
 
   } catch (error) {
     console.error('Error processing file upload:', error);
     res.status(500).send('Internal server error');
-    return; // Return after error response
-
   } finally {
-    // Cleanup: Delete the temporary file if it was still present
+    // Cleanup: Ensure temporary file is deleted
     if (file && fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path); // Ensure the temporary file is deleted
+      fs.unlinkSync(file.path);
     }
   }
 });
@@ -209,6 +219,84 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     res.status(400).send(err.message || 'File upload error.');
   } else {
     next(err);
+  }
+});
+
+// Admin page to manage files (list and remove)
+app.get('/admin', (_req: Request, res: Response) => {
+  fs.readdir(filesDirectory, (err, files) => {
+    if (err) {
+      console.error(`Error reading directory: ${err.message}`);
+      res.status(500).send('Error reading files.');
+      return;
+    }
+
+    // Filter out non-excalidrawlib files
+    const excalidrawFiles = files.filter(file => path.extname(file) === '.excalidrawlib');
+
+    // Generate HTML list of files with remove buttons
+    const fileList = excalidrawFiles.map(file => {
+      return `
+        <li class="file-item">
+          <span>${file}</span>
+          <form action="/admin/remove/${file}" method="POST" style="display:inline;">
+            <button type="submit" class="button">Remove</button>
+          </form>
+        </li>
+      `;
+    }).join(' ');
+
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin - Manage Files</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="/css/styles.css">
+      </head>
+      <body>
+        <h1>Admin - Manage Files</h1>
+        <p>Click "Remove" to delete a file.</p>
+        <ul>${fileList}</ul>
+      </body>
+      </html>
+    `);
+  });
+});
+
+// Remove file from the server
+app.post('/admin/remove/:filename', (req: Request, res: Response) => {
+  const { filename } = req.params;
+  const filePath = path.join(filesDirectory, filename);
+
+  // Check if the file exists
+  if (fs.existsSync(filePath)) {
+    try {
+      // Delete the file
+      fs.unlinkSync(filePath);
+      
+      // Also delete the corresponding title and description files if they exist
+      const titleFilePath = path.join(filesDirectory, `${path.parse(filename).name}_title.txt`);
+      const descriptionFilePath = path.join(filesDirectory, `${path.parse(filename).name}_description.txt`);
+
+      if (fs.existsSync(titleFilePath)) {
+        fs.unlinkSync(titleFilePath);
+      }
+
+      if (fs.existsSync(descriptionFilePath)) {
+        fs.unlinkSync(descriptionFilePath);
+      }
+
+      // Redirect back to the admin page with a success message
+      res.redirect('/admin');
+    } catch (err) {
+      console.error('Error removing file:', err);
+      res.status(500).send('Error removing file.');
+    }
+  } else {
+    res.status(404).send('File not found.');
   }
 });
 
@@ -358,6 +446,7 @@ app.get('/', (_req: Request, res: Response) => {
         <title>Rita Bibliotek</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
+        <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
       </head>
       <body>
         <div class="content">
@@ -384,59 +473,74 @@ app.get('/', (_req: Request, res: Response) => {
 
           <!-- Upload Form -->
           <form action="/upload" method="POST" enctype="multipart/form-data">
-            <div class="upload-group">
-              <div class="file-upload-container">
-                <label for="file-upload" class="custom-file-upload button">
-                  Lägg till biblioteksfil
-                </label>
-                <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
-              </div>
-
-              <div id="selected-file" style="display:none;">
-                <p><strong>Vald fil:</strong> <span id="file-name"></span></p>
-              </div>
-
-              <div class="title-container">
-                <label for="title">Titel:</label>
-                <input type="text" id="title" name="title" placeholder="Skriv en titel här..." required>
-              </div>
-
-              <div class="description-container">
-                <label for="description">Beskrivning:</label>
-                <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av biblioteket här..." required></textarea>
-              </div>
-
-              <div class="button-container">
-                <button type="submit" class="button">Spara</button>
-              </div>
-
-              <!-- Display the status "väntar" after file upload -->
-              <div id="upload-status" style="display:none;">
-                Väntar på uppladdning...
-              </div>
+          <div class="upload-group">
+            <div class="file-upload-container">
+              <label for="file-upload" class="custom-file-upload button">
+                Lägg till biblioteksfil
+              </label>
+              <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
             </div>
-          </form>
 
-          <script>
-            const fileInput = document.getElementById('file-upload');
-            const pendingBox = document.getElementById('pending-box');
-            const selectedFileDiv = document.getElementById('selected-file');
-            const fileNameSpan = document.getElementById('file-name');
-            const uploadStatus = document.getElementById('upload-status');
+            <div id="selected-file" style="display:none;">
+              <p><strong>Vald fil:</strong> <span id="file-name"></span></p>
+            </div>
 
-            fileInput.addEventListener('change', function() {
+            <div class="title-container">
+              <label for="title">Titel:</label>
+              <input type="text" id="title" name="title" placeholder="Skriv en titel här..." required>
+            </div>
+
+            <div class="description-container">
+              <label for="description">Beskrivning:</label>
+              <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av biblioteket här..." required></textarea>
+            </div>
+
+            <div class="button-container">
+              <button type="submit" class="button" id="save-button" disabled>Spara</button>
+            </div>
+
+            <!-- Display the status "väntar" after file upload -->
+            <div id="upload-status" style="display:none;">
+              Väntar på uppladdning...
+            </div>
+          </div>
+        </form>
+
+        <script>
+          const fileInput = document.getElementById('file-upload');
+          const saveButton = document.getElementById('save-button');
+          const selectedFileDiv = document.getElementById('selected-file');
+          const fileNameSpan = document.getElementById('file-name');
+          const uploadStatus = document.getElementById('upload-status');
+
+          // Initially disable the save button
+          saveButton.disabled = true;
+
+          fileInput.addEventListener('change', function() {
+            // Check if a file is selected
+            if (fileInput.files.length > 0) {
               // Show the selected file name
               const selectedFileName = fileInput.files[0].name;
               fileNameSpan.textContent = selectedFileName;
               selectedFileDiv.style.display = 'block'; // Show the file name
 
-              // Hide the pending box after 1 second and show "väntar"
-              setTimeout(() => {
-                pendingBox.style.display = 'none';
-                uploadStatus.style.display = 'block';  // Show "väntar" after 1 second
-              }, 1000);
-            });
-          </script>
+              // Enable the "Spara" button
+              saveButton.disabled = false;
+            } else {
+              // No file selected, keep the button disabled
+              saveButton.disabled = true;
+              selectedFileDiv.style.display = 'none'; // Hide the file name
+            }
+          });
+
+          // Prevent form submission if no file is selected
+          document.querySelector('form').addEventListener('submit', function(event) {
+            if (fileInput.files.length === 0) {
+              event.preventDefault(); // Prevent form submission
+              alert('Du måste välja en fil först!'); // Notify user
+            }
+          });
+        </script>
         </div>
       </body>
     </html>
