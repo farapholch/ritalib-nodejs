@@ -240,7 +240,7 @@ app.get('/admin', (_req: Request, res: Response) => {
         <li class="file-item">
           <span>${file}</span>
           <form action="/admin/remove/${file}" method="POST" style="display:inline;">
-            <button type="submit" class="button">Remove</button>
+            <button type="submit" class="button">Ta bort fil</button>
           </form>
         </li>
       `;
@@ -252,7 +252,7 @@ app.get('/admin', (_req: Request, res: Response) => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin - Manage Files</title>
+        <title>Ritabibliotek Admin - Hantera Filer</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
       </head>
@@ -542,6 +542,12 @@ app.get('/', (_req: Request, res: Response) => {
           });
         </script>
         </div>
+        <footer>
+          <div class="footer-content">
+            <p>&copy; 2025 Rita Bibliotek.</p>
+            <p>Kontakta oss på <a href="mailto:rita@trafikverket.se">rita@trafikverket.se</a> för frågor eller feedback.</p>
+          </div>
+        </footer>
       </body>
     </html>
     `);

@@ -48,9 +48,13 @@ li {
 
 .file-item {
   display: flex;
-  flex-direction: row;
-  justify-content: flex-start;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px; /* Adds space between list items */
+}
+
+.file-item span {
+  margin-right: 15px; /* Adds space between the text and the button */
 }
 
 .file-info {
@@ -335,4 +339,21 @@ textarea {
   font-size: 16px;
   text-align: center;
   z-index: 1000;
+}
+
+footer {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  text-align: center;
+  border-top: 1px solid #ddd;
+}
+
+footer a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
 }
