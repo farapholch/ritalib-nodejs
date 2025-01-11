@@ -473,74 +473,74 @@ app.get('/', (_req: Request, res: Response) => {
 
           <!-- Upload Form -->
           <form action="/upload" method="POST" enctype="multipart/form-data">
-          <div class="upload-group">
-            <div class="file-upload-container">
-              <label for="file-upload" class="custom-file-upload button">
-                Lägg till biblioteksfil
-              </label>
-              <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
+            <div class="upload-group">
+              <div class="file-upload-container">
+                <label for="file-upload" class="custom-file-upload button">
+                  Lägg till biblioteksfil
+                </label>
+                <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
+              </div>
+
+              <div id="selected-file" style="display:none;">
+                <p><strong>Vald fil:</strong> <span id="file-name"></span></p>
+              </div>
+
+              <div class="title-container">
+                <label for="title">Titel:</label>
+                <input type="text" id="title" name="title" placeholder="Skriv en titel här..." required>
+              </div>
+
+              <div class="description-container">
+                <label for="description">Beskrivning:</label>
+                <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av biblioteket här..." required></textarea>
+              </div>
+
+              <div class="button-container">
+                <button type="submit" class="button" id="save-button" disabled>Spara</button>
+              </div>
+
+              <!-- Display the status "väntar" after file upload -->
+              <div id="upload-status" style="display:none;">
+                Väntar på uppladdning...
+              </div>
             </div>
+          </form>
 
-            <div id="selected-file" style="display:none;">
-              <p><strong>Vald fil:</strong> <span id="file-name"></span></p>
-            </div>
+          <script>
+            const fileInput = document.getElementById('file-upload');
+            const saveButton = document.getElementById('save-button');
+            const selectedFileDiv = document.getElementById('selected-file');
+            const fileNameSpan = document.getElementById('file-name');
+            const uploadStatus = document.getElementById('upload-status');
 
-            <div class="title-container">
-              <label for="title">Titel:</label>
-              <input type="text" id="title" name="title" placeholder="Skriv en titel här..." required>
-            </div>
+            // Initially disable the save button
+            saveButton.disabled = true;
 
-            <div class="description-container">
-              <label for="description">Beskrivning:</label>
-              <textarea id="description" name="description" rows="4" cols="50" placeholder="Skriv en beskrivning av biblioteket här..." required></textarea>
-            </div>
+            fileInput.addEventListener('change', function() {
+              // Check if a file is selected
+              if (fileInput.files.length > 0) {
+                // Show the selected file name
+                const selectedFileName = fileInput.files[0].name;
+                fileNameSpan.textContent = selectedFileName;
+                selectedFileDiv.style.display = 'block'; // Show the file name
 
-            <div class="button-container">
-              <button type="submit" class="button" id="save-button" disabled>Spara</button>
-            </div>
+                // Enable the "Spara" button
+                saveButton.disabled = false;
+              } else {
+                // No file selected, keep the button disabled
+                saveButton.disabled = true;
+                selectedFileDiv.style.display = 'none'; // Hide the file name
+              }
+            });
 
-            <!-- Display the status "väntar" after file upload -->
-            <div id="upload-status" style="display:none;">
-              Väntar på uppladdning...
-            </div>
-          </div>
-        </form>
-
-        <script>
-          const fileInput = document.getElementById('file-upload');
-          const saveButton = document.getElementById('save-button');
-          const selectedFileDiv = document.getElementById('selected-file');
-          const fileNameSpan = document.getElementById('file-name');
-          const uploadStatus = document.getElementById('upload-status');
-
-          // Initially disable the save button
-          saveButton.disabled = true;
-
-          fileInput.addEventListener('change', function() {
-            // Check if a file is selected
-            if (fileInput.files.length > 0) {
-              // Show the selected file name
-              const selectedFileName = fileInput.files[0].name;
-              fileNameSpan.textContent = selectedFileName;
-              selectedFileDiv.style.display = 'block'; // Show the file name
-
-              // Enable the "Spara" button
-              saveButton.disabled = false;
-            } else {
-              // No file selected, keep the button disabled
-              saveButton.disabled = true;
-              selectedFileDiv.style.display = 'none'; // Hide the file name
-            }
-          });
-
-          // Prevent form submission if no file is selected
-          document.querySelector('form').addEventListener('submit', function(event) {
-            if (fileInput.files.length === 0) {
-              event.preventDefault(); // Prevent form submission
-              alert('Du måste välja en fil först!'); // Notify user
-            }
-          });
-        </script>
+            // Prevent form submission if no file is selected
+            document.querySelector('form').addEventListener('submit', function(event) {
+              if (fileInput.files.length === 0) {
+                event.preventDefault(); // Prevent form submission
+                alert('Du måste välja en fil först!'); // Notify user
+              }
+            });
+          </script>
         </div>
         <footer>
           <div class="footer-content">

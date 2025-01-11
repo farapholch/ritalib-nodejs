@@ -347,11 +347,13 @@ footer {
   background-color: #f8f9fa;
   text-align: center;
   border-top: 1px solid #ddd;
+  font-size: 0.875rem;  /* Smaller text size */
 }
 
 footer a {
   color: #007bff;
   text-decoration: none;
+  font-size: 0.875rem;  /* Make link text slightly smaller */
 }
 
 footer a:hover {
