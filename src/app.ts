@@ -257,8 +257,8 @@ app.get('/admin', (_req: Request, res: Response) => {
         <link rel="stylesheet" href="/css/styles.css">
       </head>
       <body>
-        <h1>Admin - Manage Files</h1>
-        <p>Click "Remove" to delete a file.</p>
+        <h1>Admin - Hantera filer i Rita Bibliotek :)</h1>
+        <p>Klicka för att ta bort en fil</p>
         <ul>${fileList}</ul>
       </body>
       </html>
