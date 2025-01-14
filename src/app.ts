@@ -544,7 +544,7 @@ app.get('/', (_req: Request, res: Response) => {
         </div>
         <footer>
           <div class="footer-content">
-            <p>&copy; 2025 Rita Bibliotek.</p>
+            <p>&copy; 2025 Rita Bibliotek</p>
             <p>Kontakta oss på <a href="mailto:rita@trafikverket.se">rita@trafikverket.se</a> för frågor eller feedback.</p>
           </div>
         </footer>
