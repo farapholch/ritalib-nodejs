@@ -18,7 +18,6 @@ const publicPath = path.join(__dirname, '../public');    // Static assets like C
 // Pagination configuration
 const FILES_PER_PAGE = 5;  // Set the number of files per page
 
-
 // Ensure the files directory exists
 if (!fs.existsSync(filesDirectory)) {
   fs.mkdirSync(filesDirectory);
@@ -167,6 +166,14 @@ app.post('/upload', uploadLimiter, upload.single('file'), (req: Request & { file
   const newFilePath = path.join(filesDirectory, newFileName);
 
   try {
+    // Check if the file already exists in the directory
+    if (fs.existsSync(newFilePath)) {
+      // If file exists, reject upload
+      fs.unlinkSync(file.path); // Delete the temporary file
+      res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
+      return; // Stop further execution
+    }
+
     // Move the file to the new path
     fs.renameSync(file.path, newFilePath);
 
@@ -445,8 +452,9 @@ app.get('/', (_req: Request, res: Response) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Rita Bibliotek</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="/css/styles.css">
-        <link rel="icon" href="/images/favicon.ico" type="image/x-icon">
+        <link rel="stylesheet" href="/css/styles.css">        
+        <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16.png" />
       </head>
       <body>
         <div class="content">
@@ -533,8 +541,8 @@ app.get('/', (_req: Request, res: Response) => {
               }
             });
 
-            // Prevent form submission if no file is selected
-            document.querySelector('form').addEventListener('submit', function(event) {
+            // Prevent form submission if no file is selected (only for upload form)
+            document.querySelector('form[action="/upload"]').addEventListener('submit', function(event) {
               if (fileInput.files.length === 0) {
                 event.preventDefault(); // Prevent form submission
                 alert('Du måste välja en fil först!'); // Notify user
@@ -545,7 +553,12 @@ app.get('/', (_req: Request, res: Response) => {
         <footer>
           <div class="footer-content">
             <p>&copy; 2025 Rita Bibliotek</p>
-            <p>Kontakta oss på <a href="mailto:rita@trafikverket.se">rita@trafikverket.se</a> för frågor eller feedback.</p>
+            <p>
+              Kontakta oss på
+              <a href="mailto:rita@trafikverket.se">rita@trafikverket.se</a>
+              eller på <a href="https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita" target="_blank">Mattermost</a>
+              för frågor eller feedback.
+            </p>
           </div>
         </footer>
       </body>
@@ -556,6 +569,7 @@ app.get('/', (_req: Request, res: Response) => {
 
 // Start server
 app.listen(PORT, () => {
+  console.log(`RitaBibliotek startar...`)
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`Serving files from ${filesDirectory}`);
   console.log(`Serving images from ${imagesPath}`);
