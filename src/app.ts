@@ -402,7 +402,13 @@ app.get('/', (_req: Request, res: Response) => {
 
       // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
       // const baseApp = 'rita-utv.sp.trafikverket.se';
-      const excalidrawLink = `https://${baseApp}?addLibrary=${encodeURIComponent(`${baseLibraryUrl}/files/${file}`)}`;
+      // Hämta ev. aktiv session (room) från URL-hashen
+      const hash = window.location.hash;
+      const roomMatch = hash.match(/room=([^,]+,[^]+)/); // Matchar room-parametern
+      const roomId = roomMatch ? roomMatch[0] : ''; // Behåller hela room-parametern
+
+      const excalidrawLink = `https://${baseApp}?addLibrary=${encodeURIComponent(`${baseLibraryUrl}/files/${file}`)}` + 
+        (roomId ? `#${roomId}` : '');
 
       return ` 
         <li class="file-item">
@@ -415,7 +421,7 @@ app.get('/', (_req: Request, res: Response) => {
         </li>
       `;
     }).join(' ');
-
+    
     // JavaScript to append token dynamically when clicked
     function appendTokenToExcalidrawLink(fileUrl: string): void {
       const idToken = new URLSearchParams(window.location.hash.slice(1)).get('token'); // Get token from the URL hash
