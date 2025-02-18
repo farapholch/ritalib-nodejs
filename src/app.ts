@@ -12,11 +12,11 @@ const PORT = process.env.PORT || 3000;
 
 // Define directories
 const filesDirectory = path.join(__dirname, '../files'); // Directory for stored files
-const imagesPath = path.join(__dirname, '../images');    // Directory for images
-const publicPath = path.join(__dirname, '../public');    // Static assets like CSS
+const imagesPath = path.join(__dirname, '../images'); // Directory for images
+const publicPath = path.join(__dirname, '../public'); // Static assets like CSS
 
 // Pagination configuration
-const FILES_PER_PAGE = 5;  // Set the number of files per page
+const FILES_PER_PAGE = 5; // Set the number of files per page
 
 // Ensure the files directory exists
 if (!fs.existsSync(filesDirectory)) {
@@ -42,7 +42,11 @@ const upload = multer({
     if (ext === allowedExtension) {
       cb(null, true); // Accept the file
     } else {
-      cb(new Error(`Invalid file type. Only ${allowedExtension} files are allowed.`)); // Reject files with other extensions
+      cb(
+        new Error(
+          `Invalid file type. Only ${allowedExtension} files are allowed.`
+        )
+      ); // Reject files with other extensions
     }
   },
   limits: {
@@ -80,11 +84,14 @@ app.use('/files', cors(corsOptions), express.static(filesDirectory));
 const ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
 
 // Basic authentication middleware
-app.use('/admin', expressBasicAuth({
-  users: { 'admin': ADMIN_PASSWORD },
-  challenge: true, // Prompts for username/password if not provided
-  realm: 'Admin Area' // A message that will appear in the login prompt
-}));
+app.use(
+  '/admin',
+  expressBasicAuth({
+    users: { admin: ADMIN_PASSWORD },
+    challenge: true, // Prompts for username/password if not provided
+    realm: 'Admin Area', // A message that will appear in the login prompt
+  })
+);
 
 // Function to check if a file title already exists
 const checkIfTitleExists = (title: string): boolean => {
@@ -92,9 +99,9 @@ const checkIfTitleExists = (title: string): boolean => {
 
   // Trim title and from blank space
   const sanitizedTitle = title
-  .trim()
-  .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-  .replace(/[^a-zA-Z0-9\s\-_.]/g, ''); // Allow only letters, numbers, spaces, hyphen, underscore, and period
+    .trim()
+    .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
+    .replace(/[^a-zA-Z0-9\s\-_.]/g, ''); // Allow only letters, numbers, spaces, hyphen, underscore, and period
 
   const titleFileName = `${sanitizedTitle}.excalidrawlib`; // Append the correct extension
 
@@ -104,9 +111,11 @@ const checkIfTitleExists = (title: string): boolean => {
 const sanitizeText = (text: string, maxLength: number): string => {
   const invalidCharactersPattern = /[^a-zA-Z0-9\s\-_.åäöÅÄÖ]/; // Define invalid characters
   if (invalidCharactersPattern.test(text)) {
-    throw new Error('Titeln innehåller ogiltiga tecken. Använd endast bokstäver, siffror, mellanslag, bindestreck, understreck och punkter.');
+    throw new Error(
+      'Titeln innehåller ogiltiga tecken. Använd endast bokstäver, siffror, mellanslag, bindestreck, understreck och punkter.'
+    );
   }
-  
+
   return text
     .trim()
     .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
@@ -114,111 +123,136 @@ const sanitizeText = (text: string, maxLength: number): string => {
 };
 
 const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
-  max: 10,  // Limit to 10 requests per 15 minutes
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit to 10 requests per 15 minutes
   message: 'Too many upload requests, please try again later.',
 });
 // Handle file uploads
-app.post('/upload', uploadLimiter, upload.single('file'), (req: Request & { file?: Express.Multer.File }, res: Response): void => {
-  const file = req.file;
-  let title = req.body.title as string; // Capture the title
-  const description = req.body.description as string; // Capture the description
+app.post(
+  '/upload',
+  uploadLimiter,
+  upload.single('file'),
+  (req: Request & { file?: Express.Multer.File }, res: Response): void => {
+    const file = req.file;
+    let title = req.body.title as string; // Capture the title
+    const description = req.body.description as string; // Capture the description
 
-  if (!file) {
-    res.status(400).send('No file uploaded.');
-    return; // Stop further execution
-  }
-
-  // Validate the file content
-  const isValidContent = validateFileContent(file.path);
-  if (!isValidContent) {
-    fs.unlinkSync(file.path); // Delete the file if it's invalid
-    res.status(400).send('Invalid file content. The file must contain validated JSON.');
-    return;
-  }
-
-  // Ensure title is provided
-  if (!title) {
-    title = 'Untitled'; // Default title if none is provided
-  }
-
-  const MAX_TITLE_LENGTH = 30;
-  const sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
-
-  // Check if title already exists in the directory
-  if (checkIfTitleExists(sanitizedTitle)) {
-    console.log(`File with title "${sanitizedTitle}" already exists.`);
-    fs.unlinkSync(file.path); // Delete the temporary file
-    res.status(400).send('A template with this name already exists. Please choose a different name.');
-    return; // Stop further processing
-  }
-
-  // **SANITIZED FILE PATH CHECK**
-  const safeFilePath = path.resolve(filesDirectory, sanitizedTitle + '.excalidrawlib');
-  if (!safeFilePath.startsWith(filesDirectory)) {
-    fs.unlinkSync(file.path); // Delete the temporary file
-    res.status(400).send('Invalid file path.');
-    return; // Stop further execution
-  }
-
-  // Define the new file name and path
-  const newFileName = sanitizedTitle + path.extname(file.originalname);
-  const newFilePath = path.join(filesDirectory, newFileName);
-
-  try {
-    // Check if the file already exists in the directory
-    if (fs.existsSync(newFilePath)) {
-      // If file exists, reject upload
-      fs.unlinkSync(file.path); // Delete the temporary file
-      res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
+    if (!file) {
+      res.status(400).send('No file uploaded.');
       return; // Stop further execution
     }
 
-    // Move the file to the new path
-    fs.renameSync(file.path, newFilePath);
-
-    // Log the upload event
-    console.log(`File uploaded: ${newFileName}`);
-
-    // Save the title as a separate text file (optional)
-    const titleFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_title.txt`);
-    if (title.trim()) {
-      fs.writeFileSync(titleFilePath, title.trim());
-    }
-
-    // Validate and sanitize the description
-    const MAX_DESCRIPTION_LENGTH = 150;
-    const sanitizedDescription = sanitizeHtml(description, {
-      allowedTags: [], // No HTML tags allowed
-      allowedAttributes: {} // No attributes allowed
-    });
-
-    if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
-      fs.unlinkSync(newFilePath); // Delete the uploaded file if the description is invalid
-      res.status(400).send(`Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`);
+    // Validate the file content
+    const isValidContent = validateFileContent(file.path);
+    if (!isValidContent) {
+      fs.unlinkSync(file.path); // Delete the file if it's invalid
+      res
+        .status(400)
+        .send('Invalid file content. The file must contain validated JSON.');
       return;
     }
 
-    if (sanitizedDescription) {
-      const descriptionFilePath = path.join(filesDirectory, `${path.parse(newFileName).name}_description.txt`);
-      fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
+    // Ensure title is provided
+    if (!title) {
+      title = 'Untitled'; // Default title if none is provided
     }
 
-    // Redirect back to the main page
-    res.redirect('/');
-    console.log(`Title saved: ${titleFilePath}`);
-    console.log(`Description saved: ${sanitizedDescription}`);
+    const MAX_TITLE_LENGTH = 30;
+    const sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
 
-  } catch (error) {
-    console.error('Error processing file upload:', error);
-    res.status(500).send('Internal server error');
-  } finally {
-    // Cleanup: Ensure temporary file is deleted
-    if (file && fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
+    // Check if title already exists in the directory
+    if (checkIfTitleExists(sanitizedTitle)) {
+      console.log(`File with title "${sanitizedTitle}" already exists.`);
+      fs.unlinkSync(file.path); // Delete the temporary file
+      res
+        .status(400)
+        .send(
+          'A template with this name already exists. Please choose a different name.'
+        );
+      return; // Stop further processing
+    }
+
+    // **SANITIZED FILE PATH CHECK**
+    const safeFilePath = path.resolve(
+      filesDirectory,
+      sanitizedTitle + '.excalidrawlib'
+    );
+    if (!safeFilePath.startsWith(filesDirectory)) {
+      fs.unlinkSync(file.path); // Delete the temporary file
+      res.status(400).send('Invalid file path.');
+      return; // Stop further execution
+    }
+
+    // Define the new file name and path
+    const newFileName = sanitizedTitle + path.extname(file.originalname);
+    const newFilePath = path.join(filesDirectory, newFileName);
+
+    try {
+      // Check if the file already exists in the directory
+      if (fs.existsSync(newFilePath)) {
+        // If file exists, reject upload
+        fs.unlinkSync(file.path); // Delete the temporary file
+        res
+          .status(400)
+          .send('En fil med det namnet finns redan, välj ett annat namn.');
+        return; // Stop further execution
+      }
+
+      // Move the file to the new path
+      fs.renameSync(file.path, newFilePath);
+
+      // Log the upload event
+      console.log(`File uploaded: ${newFileName}`);
+
+      // Save the title as a separate text file (optional)
+      const titleFilePath = path.join(
+        filesDirectory,
+        `${path.parse(newFileName).name}_title.txt`
+      );
+      if (title.trim()) {
+        fs.writeFileSync(titleFilePath, title.trim());
+      }
+
+      // Validate and sanitize the description
+      const MAX_DESCRIPTION_LENGTH = 150;
+      const sanitizedDescription = sanitizeHtml(description, {
+        allowedTags: [], // No HTML tags allowed
+        allowedAttributes: {}, // No attributes allowed
+      });
+
+      if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
+        fs.unlinkSync(newFilePath); // Delete the uploaded file if the description is invalid
+        res
+          .status(400)
+          .send(
+            `Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`
+          );
+        return;
+      }
+
+      if (sanitizedDescription) {
+        const descriptionFilePath = path.join(
+          filesDirectory,
+          `${path.parse(newFileName).name}_description.txt`
+        );
+        fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
+      }
+
+      // Redirect back to the main page
+      res.redirect('/');
+      console.log(`Title saved: ${titleFilePath}`);
+      console.log(`Description saved: ${sanitizedDescription}`);
+    } catch (error) {
+      console.error('Error processing file upload:', error);
+      res.status(500).send('Internal server error');
+    } finally {
+      // Cleanup: Ensure temporary file is deleted
+      if (file && fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
     }
   }
-});
+);
 
 // Error handling for file uploads
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -239,11 +273,14 @@ app.get('/admin', (_req: Request, res: Response) => {
     }
 
     // Filter out non-excalidrawlib files
-    const excalidrawFiles = files.filter(file => path.extname(file) === '.excalidrawlib');
+    const excalidrawFiles = files.filter(
+      (file) => path.extname(file) === '.excalidrawlib'
+    );
 
     // Generate HTML list of files with remove buttons
-    const fileList = excalidrawFiles.map(file => {
-      return `
+    const fileList = excalidrawFiles
+      .map((file) => {
+        return `
         <li class="file-item">
           <span>${file}</span>
           <form action="/admin/remove/${file}" method="POST" style="display:inline;">
@@ -251,7 +288,8 @@ app.get('/admin', (_req: Request, res: Response) => {
           </form>
         </li>
       `;
-    }).join(' ');
+      })
+      .join(' ');
 
     res.send(`
       <!DOCTYPE html>
@@ -283,10 +321,16 @@ app.post('/admin/remove/:filename', (req: Request, res: Response) => {
     try {
       // Delete the file
       fs.unlinkSync(filePath);
-      
+
       // Also delete the corresponding title and description files if they exist
-      const titleFilePath = path.join(filesDirectory, `${path.parse(filename).name}_title.txt`);
-      const descriptionFilePath = path.join(filesDirectory, `${path.parse(filename).name}_description.txt`);
+      const titleFilePath = path.join(
+        filesDirectory,
+        `${path.parse(filename).name}_title.txt`
+      );
+      const descriptionFilePath = path.join(
+        filesDirectory,
+        `${path.parse(filename).name}_description.txt`
+      );
 
       if (fs.existsSync(titleFilePath)) {
         fs.unlinkSync(titleFilePath);
@@ -308,24 +352,27 @@ app.post('/admin/remove/:filename', (req: Request, res: Response) => {
 });
 
 // Serve file from /files/:filename
-app.get('/files/:filename', (req: Request, res: Response, next: NextFunction) => {
-  const { filename } = req.params;
-  console.log(`Request for file: ${filename}`);  // Log when a file is being downloaded
+app.get(
+  '/files/:filename',
+  (req: Request, res: Response, next: NextFunction) => {
+    const { filename } = req.params;
+    console.log(`Request for file: ${filename}`); // Log when a file is being downloaded
 
-  // Check if the file exists in the directory
-  const filePath = path.join(filesDirectory, filename);
+    // Check if the file exists in the directory
+    const filePath = path.join(filesDirectory, filename);
 
-  if (fs.existsSync(filePath)) {
-    // Log the download event
-    console.log(`File being downloaded: ${filename}`);
+    if (fs.existsSync(filePath)) {
+      // Log the download event
+      console.log(`File being downloaded: ${filename}`);
 
-    // Serve the file
-    res.sendFile(filePath);
-  } else {
-    // Handle file not found
-    res.status(404).send('File not found');
+      // Serve the file
+      res.sendFile(filePath);
+    } else {
+      // Handle file not found
+      res.status(404).send('File not found');
+    }
   }
-});
+);
 
 // Route to list files with pagination and search
 app.get('/', (_req: Request, res: Response) => {
@@ -333,6 +380,7 @@ app.get('/', (_req: Request, res: Response) => {
   const currentPage = parseInt(_req.query.page as string, 10) || 1;
   const searchQuery = (_req.query.search as string)?.trim().toLowerCase() || '';
   const startIndex = (currentPage - 1) * FILES_PER_PAGE;
+  const ritaToken = (_req.query.token as string)?.trim() || '';
 
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -342,107 +390,107 @@ app.get('/', (_req: Request, res: Response) => {
     }
 
     // Filter out non-excalidrawlib files and list only .excalidrawlib files
-    const excalidrawFiles = files.filter(file => path.extname(file) === '.excalidrawlib');
+    const excalidrawFiles = files.filter(
+      (file) => path.extname(file) === '.excalidrawlib'
+    );
 
     // If a search query exists, filter files based on the search in both title and description
-    const filteredFiles = excalidrawFiles.filter(file => {
+    const filteredFiles = excalidrawFiles.filter((file) => {
       const fileNameWithoutExt = path.parse(file).name;
 
       // Paths for title and description files
-      const titleFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_title.txt`);
-      const descriptionFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_description.txt`);
+      const titleFilePath = path.join(
+        filesDirectory,
+        `${fileNameWithoutExt}_title.txt`
+      );
+      const descriptionFilePath = path.join(
+        filesDirectory,
+        `${fileNameWithoutExt}_description.txt`
+      );
 
       // Check if the title file exists and is not empty
       if (fs.existsSync(titleFilePath)) {
         const title = fs.readFileSync(titleFilePath, 'utf-8').trim();
-        
+
         if (!title) {
-          return false;  // Skip files with an empty title
+          return false; // Skip files with an empty title
         }
       } else {
-        return false;  // Skip files without a title file
+        return false; // Skip files without a title file
       }
 
       // Read the description, if it exists
-      const description = fs.existsSync(descriptionFilePath) ? fs.readFileSync(descriptionFilePath, 'utf-8').trim() : 'No description available';
+      const description = fs.existsSync(descriptionFilePath)
+        ? fs.readFileSync(descriptionFilePath, 'utf-8').trim()
+        : 'No description available';
 
       // Check if either title or description matches the search query
-      return fileNameWithoutExt.includes(searchQuery) || description.toLowerCase().includes(searchQuery);
+      return (
+        fileNameWithoutExt.includes(searchQuery) ||
+        description.toLowerCase().includes(searchQuery)
+      );
     });
 
     // Get only the files for the current page
-    const paginatedFiles = filteredFiles.slice(startIndex, startIndex + FILES_PER_PAGE);
+    const paginatedFiles = filteredFiles.slice(
+      startIndex,
+      startIndex + FILES_PER_PAGE
+    );
 
-    const fileList = paginatedFiles.map(file => {
-      const fileNameWithoutExt = path.parse(file).name;
-      const titleFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_title.txt`);
-      const descriptionFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_description.txt`);
+    const fileList = paginatedFiles
+      .map((file) => {
+        const fileNameWithoutExt = path.parse(file).name;
+        const titleFilePath = path.join(
+          filesDirectory,
+          `${fileNameWithoutExt}_title.txt`
+        );
+        const descriptionFilePath = path.join(
+          filesDirectory,
+          `${fileNameWithoutExt}_description.txt`
+        );
 
-      let title = 'Untitled';  // Default title when no title is found
-      let description = 'No description available';  // Default description when no description is found
+        let title = 'Untitled'; // Default title when no title is found
+        let description = 'No description available'; // Default description when no description is found
 
-      // Read title file and update title if it exists and is non-empty
-      if (fs.existsSync(titleFilePath)) {
-        const titleFromFile = fs.readFileSync(titleFilePath, 'utf-8').trim();
-        if (titleFromFile) {
-          title = titleFromFile;
+        // Read title file and update title if it exists and is non-empty
+        if (fs.existsSync(titleFilePath)) {
+          const titleFromFile = fs.readFileSync(titleFilePath, 'utf-8').trim();
+          if (titleFromFile) {
+            title = titleFromFile;
+          }
         }
-      }    
 
-      // Read description file and update description if it exists and is non-empty
-      if (fs.existsSync(descriptionFilePath)) {
-        const descriptionFromFile = fs.readFileSync(descriptionFilePath, 'utf-8').trim();
-        if (descriptionFromFile) {
-          description = descriptionFromFile;
+        // Read description file and update description if it exists and is non-empty
+        if (fs.existsSync(descriptionFilePath)) {
+          const descriptionFromFile = fs
+            .readFileSync(descriptionFilePath, 'utf-8')
+            .trim();
+          if (descriptionFromFile) {
+            description = descriptionFromFile;
+          }
         }
-      }
 
-      const baseLibraryUrl = process.env.BASE_LIBRARY_URL;
-      const baseApp = process.env.BASE_APP;
+        const baseLibraryUrl = process.env.BASE_LIBRARY_URL;
+        const baseApp = process.env.BASE_APP;
 
-      // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
-      // const baseApp = 'rita-utv.sp.trafikverket.se';
-      // Hämta ev. aktiv session (room) från URL-hashen
-      const hash = window.location.hash;
-      const roomMatch = hash.match(/room=([^,]+,[^]+)/); // Matchar room-parametern
-      const roomId = roomMatch ? roomMatch[0] : ''; // Behåller hela room-parametern
+        // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
+        // const baseApp = 'rita-utv.sp.trafikverket.se';
+        const excalidrawLink = `https://${baseApp}#addLibrary=${encodeURIComponent(
+          `${baseLibraryUrl}/files/${file}`
+        )}&token=${ritaToken}`;
 
-      const excalidrawLink = `https://${baseApp}?addLibrary=${encodeURIComponent(`${baseLibraryUrl}/files/${file}`)}` + 
-        (roomId ? `#${roomId}` : '');
-
-      return ` 
+        return ` 
         <li class="file-item">
           <div class="file-icon">📄</div>
           <div class="file-info">
             <strong class="file-title">${title}</strong>
             <p class="file-description">${description}</p>            
-            <a href="${excalidrawLink}" class="button" onclick="trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
+            <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
           </div>
         </li>
       `;
-    }).join(' ');
-    
-    // JavaScript to append token dynamically when clicked
-    function appendTokenToExcalidrawLink(fileUrl: string): void {
-      const idToken = new URLSearchParams(window.location.hash.slice(1)).get('token'); // Get token from the URL hash
-
-      if (idToken) {
-        // If token exists, append it to the Excalidraw link
-        const excalidrawLinkWithToken = `https://rita.sp.trafikverket.se?library=${encodeURIComponent(fileUrl)}&token=${idToken}`;
-        
-        // Select the link element
-        const link = document.querySelector('a[href="'+encodeURIComponent(fileUrl)+'"]');
-        
-        if (link) { // Ensure the link is not null
-          // Cast to HTMLAnchorElement to access the href property
-          (link as HTMLAnchorElement).href = excalidrawLinkWithToken;  // Update the link with the token
-        } else {
-          console.error('Link element not found');
-        }
-      } else {
-        console.error('Token not found in URL');
-      }
-    }
+      })
+      .join(' ');
 
     // Generate pagination links
     const totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
@@ -575,7 +623,7 @@ app.get('/', (_req: Request, res: Response) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`RitaBibliotek startar...`)
+  console.log(`RitaBibliotek startar...`);
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`Serving files from ${filesDirectory}`);
   console.log(`Serving images from ${imagesPath}`);
