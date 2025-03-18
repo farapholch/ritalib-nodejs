@@ -36,7 +36,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (_req, file, cb) => {
-    const allowedExtension = '.excalidrawlib'; // Define the only allowed extension
+    const allowedExtension = '.excalidrawlib'; // Define the only allowed extension for the library file
     const ext = path.extname(file.originalname).toLowerCase();
 
     if (ext === allowedExtension) {
@@ -127,6 +127,40 @@ const uploadLimiter = rateLimit({
   max: 10, // Limit to 10 requests per 15 minutes
   message: 'Too many upload requests, please try again later.',
 });
+
+// Lägg till en ny multer-konfiguration för att hantera bilder
+const imageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, imagesPath); // Spara bilderna i 'images' katalogen
+  },
+  filename: (_req, file, cb) => {
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    const sanitizedFileName = `${Date.now()}${fileExtension}`;
+    cb(null, sanitizedFileName); // Skapa ett unikt filnamn för varje bild
+  },
+});
+
+// Skapa en multer-instans för bilduppladdning
+const imageUpload = multer({
+  storage: imageStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
+  },
+}).single('image'); // En bild per uppladdning
+
+const previewDirectory = path.resolve(__dirname, 'public', 'uploads', 'previews');
+
+// Function to generate an image preview URL (for display purposes)
+const getImagePreview = (filePath: string): string => {
+  const fileExt = path.extname(filePath).toLowerCase();
+  if (fileExt === '.jpg' || fileExt === '.jpeg' || fileExt === '.png' || fileExt === '.gif') {
+    // You could also generate a smaller image here using a library like sharp, if needed
+    return path.join('/uploads/previews', path.basename(filePath));
+  }
+  return '';
+};
+
+
 // Handle file uploads
 app.post(
   '/upload',
@@ -134,27 +168,25 @@ app.post(
   upload.single('file'),
   (req: Request & { file?: Express.Multer.File }, res: Response): void => {
     const file = req.file;
-    let title = req.body.title as string; // Capture the title
-    const description = req.body.description as string; // Capture the description
+    let title = req.body.title as string;
+    const description = req.body.description as string;
 
     if (!file) {
       res.status(400).send('No file uploaded.');
-      return; // Stop further execution
+      return;
     }
 
     // Validate the file content
     const isValidContent = validateFileContent(file.path);
     if (!isValidContent) {
-      fs.unlinkSync(file.path); // Delete the file if it's invalid
-      res
-        .status(400)
-        .send('Invalid file content. The file must contain validated JSON.');
+      fs.unlinkSync(file.path);
+      res.status(400).send('Invalid file content. The file must contain validated JSON.');
       return;
     }
 
     // Ensure title is provided
     if (!title) {
-      title = 'Untitled'; // Default title if none is provided
+      title = 'Untitled';
     }
 
     const MAX_TITLE_LENGTH = 30;
@@ -163,48 +195,36 @@ app.post(
     // Check if title already exists in the directory
     if (checkIfTitleExists(sanitizedTitle)) {
       console.log(`File with title "${sanitizedTitle}" already exists.`);
-      fs.unlinkSync(file.path); // Delete the temporary file
-      res
-        .status(400)
-        .send(
-          'A template with this name already exists. Please choose a different name.'
-        );
-      return; // Stop further processing
+      fs.unlinkSync(file.path);
+      res.status(400).send('A template with this name already exists. Please choose a different name.');
+      return;
     }
 
-    // **SANITIZED FILE PATH CHECK**
     const safeFilePath = path.resolve(
       filesDirectory,
       sanitizedTitle + '.excalidrawlib'
     );
     if (!safeFilePath.startsWith(filesDirectory)) {
-      fs.unlinkSync(file.path); // Delete the temporary file
+      fs.unlinkSync(file.path);
       res.status(400).send('Invalid file path.');
-      return; // Stop further execution
+      return;
     }
 
-    // Define the new file name and path
     const newFileName = sanitizedTitle + path.extname(file.originalname);
     const newFilePath = path.join(filesDirectory, newFileName);
 
     try {
       // Check if the file already exists in the directory
       if (fs.existsSync(newFilePath)) {
-        // If file exists, reject upload
-        fs.unlinkSync(file.path); // Delete the temporary file
-        res
-          .status(400)
-          .send('En fil med det namnet finns redan, välj ett annat namn.');
-        return; // Stop further execution
+        fs.unlinkSync(file.path);
+        res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
+        return;
       }
 
-      // Move the file to the new path
       fs.renameSync(file.path, newFilePath);
 
-      // Log the upload event
       console.log(`File uploaded: ${newFileName}`);
 
-      // Save the title as a separate text file (optional)
       const titleFilePath = path.join(
         filesDirectory,
         `${path.parse(newFileName).name}_title.txt`
@@ -213,20 +233,15 @@ app.post(
         fs.writeFileSync(titleFilePath, title.trim());
       }
 
-      // Validate and sanitize the description
       const MAX_DESCRIPTION_LENGTH = 150;
       const sanitizedDescription = sanitizeHtml(description, {
-        allowedTags: [], // No HTML tags allowed
-        allowedAttributes: {}, // No attributes allowed
+        allowedTags: [],
+        allowedAttributes: {},
       });
 
       if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
-        fs.unlinkSync(newFilePath); // Delete the uploaded file if the description is invalid
-        res
-          .status(400)
-          .send(
-            `Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`
-          );
+        fs.unlinkSync(newFilePath);
+        res.status(400).send(`Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`);
         return;
       }
 
@@ -235,18 +250,26 @@ app.post(
           filesDirectory,
           `${path.parse(newFileName).name}_description.txt`
         );
-        fs.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
+        fs.writeFileSync(descriptionFilePath, sanitizedDescription);
       }
 
-      // Redirect back to the main page
-      res.redirect('/');
+      // Image Preview Generation (only for image types)
+      const imagePreview = getImagePreview(newFilePath);
+
+      // Send the image preview URL (or the file content) in the response
+      res.status(200).json({
+        message: 'File uploaded successfully',
+        previewUrl: imagePreview, // Return the preview URL for images
+        title: sanitizedTitle,
+        description: sanitizedDescription,
+      });
+
       console.log(`Title saved: ${titleFilePath}`);
       console.log(`Description saved: ${sanitizedDescription}`);
     } catch (error) {
       console.error('Error processing file upload:', error);
       res.status(500).send('Internal server error');
     } finally {
-      // Cleanup: Ensure temporary file is deleted
       if (file && fs.existsSync(file.path)) {
         fs.unlinkSync(file.path);
       }
@@ -543,6 +566,17 @@ app.get('/', (_req: Request, res: Response) => {
                 <input id="file-upload" type="file" name="file" accept=".excalidrawlib" required>
               </div>
 
+               <div class="image-upload-container">
+              <label for="image-upload" class="custom-file-upload button">
+                Lägg till förhandsvisningsbild
+              </label>
+              <input id="image-upload" type="file" name="image" accept="image/*">
+              <div id="image-preview" style="display:none;">
+                <h3>Förhandsgranskning av bild:</h3>
+                <img id="preview" src="" alt="Image Preview" style="max-width: 300px; max-height: 300px;">
+              </div>
+            </div>  
+
               <div id="selected-file" style="display:none;">
                 <p><strong>Vald fil:</strong> <span id="file-name"></span></p>
               </div>
@@ -567,6 +601,20 @@ app.get('/', (_req: Request, res: Response) => {
               </div>
             </div>
           </form>
+          <script>
+          // JavaScript för bildpreview
+            document.getElementById('image-upload').addEventListener('change', function(event) {
+              const file = event.target.files[0];
+              if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                  document.getElementById('preview').src = e.target.result;
+                  document.getElementById('image-preview').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+              }
+            });
+          </script>
 
           <script>
             const fileInput = document.getElementById('file-upload');
