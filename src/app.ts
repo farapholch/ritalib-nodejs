@@ -25,32 +25,37 @@ if (!fs.existsSync(filesDirectory)) {
 
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, filesDirectory);
+  destination: function (req, file, cb) {
+    // Se till att mappen 'files' finns
+    const uploadPath = path.join(__dirname, 'files'); // Byt till rätt sökväg
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true }); // Skapa mappen om den inte finns
+    }
+    cb(null, uploadPath); // Filen sparas i 'files' mappen
   },
-  filename: (_req, file, cb) => {
-    cb(null, file.originalname);
-  },
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname)); // Sätt filnamn med tidstämpel
+  }
 });
 
 const upload = multer({
   storage,
-  fileFilter: (_req, file, cb) => {
-    const allowedExtension = '.excalidrawlib'; // Define the only allowed extension for the library file
+  fileFilter: (req, file, cb) => {
+    console.log("Full file object:", file); // Debugging
+    console.log(`Received file: ${file.originalname}, Extension: ${path.extname(file.originalname).toLowerCase()}`);
+
+    // Tillåtna filtyper
+    const allowedExtensions = ['.excalidrawlib', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
     const ext = path.extname(file.originalname).toLowerCase();
 
-    if (ext === allowedExtension) {
-      cb(null, true); // Accept the file
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true); // Acceptera filen
     } else {
-      cb(
-        new Error(
-          `Invalid file type. Only ${allowedExtension} files are allowed.`
-        )
-      ); // Reject files with other extensions
+      cb(new Error(`Invalid file type. Only ${allowedExtensions.join(', ')} files are allowed.`));
     }
   },
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10 MB limit in bytes
+    fileSize: 10 * 1024 * 1024, // 10 MB
   },
 });
 
@@ -150,6 +155,11 @@ const imageUpload = multer({
 
 const previewDirectory = path.resolve(__dirname, 'public', 'uploads', 'previews');
 
+// Ensure the preview directory exists
+if (!fs.existsSync(previewDirectory)) {
+  fs.mkdirSync(previewDirectory, { recursive: true });
+}
+
 // Function to generate an image preview URL (for display purposes)
 const getImagePreview = (filePath: string): string => {
   const fileExt = path.extname(filePath).toLowerCase();
@@ -160,122 +170,146 @@ const getImagePreview = (filePath: string): string => {
   return '';
 };
 
+// Skapa en egen typ för req med filerna
+interface MyRequest extends Request {
+  files: { 
+    file?: Express.Multer.File[]; 
+    image?: Express.Multer.File[]; 
+  };
+}
 
-// Handle file uploads
+// Serve uploaded images
+app.use('/uploads/previews', express.static(previewDirectory));
+
+// Middleware för uppladdning
+const uploadHandler = (req: MyRequest, res: Response): void => {
+  const file = req.files?.file ? req.files.file[0] : null;  // Typa som file[0]
+  const image = req.files?.image ? req.files.image[0] : null;  // Typa som image[0]
+  let title = req.body.title as string;
+  const description = req.body.description as string;
+
+  if (!file || !image) {
+    res.status(400).send('Both file and preview image must be uploaded.');
+    return;
+  }
+
+  // Här fortsätter din logik för filvalidering, titel, beskrivning etc.
+  let imagePreviewUrl = '';
+  if (image) {
+    const imagePreview = getImagePreview(image.path);  // Generera bildens förhandsvisning
+    imagePreviewUrl = imagePreview; // Set the image preview URL
+    // Hantera bilden som du gör med huvudfilen
+  }
+
+  // Validate the file content
+  const isValidContent = validateFileContent(file.path);
+  if (!isValidContent) {
+    fs.unlinkSync(file.path);
+    res.status(400).send('Invalid file content. The file must contain validated JSON.');
+    return;
+  }
+
+  // Ensure title is provided
+  if (!title) {
+    title = 'Untitled';
+  }
+
+  const MAX_TITLE_LENGTH = 30;
+  const sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
+
+  // Check if title already exists in the directory
+  if (checkIfTitleExists(sanitizedTitle)) {
+    console.log(`File with title "${sanitizedTitle}" already exists.`);
+    fs.unlinkSync(file.path);
+    res.status(400).send('A template with this name already exists. Please choose a different name.');
+    return;
+  }
+
+  const safeFilePath = path.resolve(
+    filesDirectory,
+    sanitizedTitle + '.excalidrawlib'
+  );
+  if (!safeFilePath.startsWith(filesDirectory)) {
+    fs.unlinkSync(file.path);
+    res.status(400).send('Invalid file path.');
+    return;
+  }
+
+  const newFileName = sanitizedTitle + path.extname(file.originalname);
+  const newFilePath = path.join(filesDirectory, newFileName);
+
+  try {
+    // Check if the file already exists in the directory
+    if (fs.existsSync(newFilePath)) {
+      fs.unlinkSync(file.path);
+      res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
+      return;
+    }
+
+    fs.renameSync(file.path, newFilePath);
+
+    console.log(`File uploaded: ${newFileName}`);
+
+    const titleFilePath = path.join(
+      filesDirectory,
+      `${path.parse(newFileName).name}_title.txt`
+    );
+    if (title.trim()) {
+      fs.writeFileSync(titleFilePath, title.trim());
+    }
+
+    const MAX_DESCRIPTION_LENGTH = 150;
+    const sanitizedDescription = sanitizeHtml(description, {
+      allowedTags: [],
+      allowedAttributes: {},
+    });
+
+    if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
+      fs.unlinkSync(newFilePath);
+      res.status(400).send(`Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`);
+      return;
+    }
+
+    if (sanitizedDescription) {
+      const descriptionFilePath = path.join(
+        filesDirectory,
+        `${path.parse(newFileName).name}_description.txt`
+      );
+      fs.writeFileSync(descriptionFilePath, sanitizedDescription);
+    }
+
+    // Save the image preview with the correct filename
+    if (image) {
+      const imagePreviewPath = path.join(previewDirectory, `${path.parse(newFileName).name}${path.extname(image.originalname)}`);
+      fs.renameSync(image.path, imagePreviewPath);
+    }
+
+    // Redirect to the main page after successful upload
+    res.redirect('/');
+
+    console.log(`Title saved: ${titleFilePath}`);
+    console.log(`Description saved: ${sanitizedDescription}`);
+  } catch (error) {
+    console.error('Error processing file upload:', error);
+    res.status(500).send('Internal server error');
+  } finally {
+    if (file && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+  }
+};
+
+// Middleware för uppladdning
 app.post(
   '/upload',
   uploadLimiter,
-  upload.single('file'),
-  (req: Request & { file?: Express.Multer.File }, res: Response): void => {
-    const file = req.file;
-    let title = req.body.title as string;
-    const description = req.body.description as string;
-
-    if (!file) {
-      res.status(400).send('No file uploaded.');
-      return;
-    }
-
-    // Validate the file content
-    const isValidContent = validateFileContent(file.path);
-    if (!isValidContent) {
-      fs.unlinkSync(file.path);
-      res.status(400).send('Invalid file content. The file must contain validated JSON.');
-      return;
-    }
-
-    // Ensure title is provided
-    if (!title) {
-      title = 'Untitled';
-    }
-
-    const MAX_TITLE_LENGTH = 30;
-    const sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
-
-    // Check if title already exists in the directory
-    if (checkIfTitleExists(sanitizedTitle)) {
-      console.log(`File with title "${sanitizedTitle}" already exists.`);
-      fs.unlinkSync(file.path);
-      res.status(400).send('A template with this name already exists. Please choose a different name.');
-      return;
-    }
-
-    const safeFilePath = path.resolve(
-      filesDirectory,
-      sanitizedTitle + '.excalidrawlib'
-    );
-    if (!safeFilePath.startsWith(filesDirectory)) {
-      fs.unlinkSync(file.path);
-      res.status(400).send('Invalid file path.');
-      return;
-    }
-
-    const newFileName = sanitizedTitle + path.extname(file.originalname);
-    const newFilePath = path.join(filesDirectory, newFileName);
-
-    try {
-      // Check if the file already exists in the directory
-      if (fs.existsSync(newFilePath)) {
-        fs.unlinkSync(file.path);
-        res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
-        return;
-      }
-
-      fs.renameSync(file.path, newFilePath);
-
-      console.log(`File uploaded: ${newFileName}`);
-
-      const titleFilePath = path.join(
-        filesDirectory,
-        `${path.parse(newFileName).name}_title.txt`
-      );
-      if (title.trim()) {
-        fs.writeFileSync(titleFilePath, title.trim());
-      }
-
-      const MAX_DESCRIPTION_LENGTH = 150;
-      const sanitizedDescription = sanitizeHtml(description, {
-        allowedTags: [],
-        allowedAttributes: {},
-      });
-
-      if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
-        fs.unlinkSync(newFilePath);
-        res.status(400).send(`Description must be less than ${MAX_DESCRIPTION_LENGTH} characters.`);
-        return;
-      }
-
-      if (sanitizedDescription) {
-        const descriptionFilePath = path.join(
-          filesDirectory,
-          `${path.parse(newFileName).name}_description.txt`
-        );
-        fs.writeFileSync(descriptionFilePath, sanitizedDescription);
-      }
-
-      // Image Preview Generation (only for image types)
-      const imagePreview = getImagePreview(newFilePath);
-
-      // Send the image preview URL (or the file content) in the response
-      res.status(200).json({
-        message: 'File uploaded successfully',
-        previewUrl: imagePreview, // Return the preview URL for images
-        title: sanitizedTitle,
-        description: sanitizedDescription,
-      });
-
-      console.log(`Title saved: ${titleFilePath}`);
-      console.log(`Description saved: ${sanitizedDescription}`);
-    } catch (error) {
-      console.error('Error processing file upload:', error);
-      res.status(500).send('Internal server error');
-    } finally {
-      if (file && fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path);
-      }
-    }
-  }
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'image', maxCount: 1 }
+  ]),
+  uploadHandler as any
 );
+
 
 // Error handling for file uploads
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -343,6 +377,7 @@ app.post('/admin/remove/:filename', (req: Request, res: Response) => {
   if (fs.existsSync(filePath)) {
     try {
       // Delete the file
+
       fs.unlinkSync(filePath);
 
       // Also delete the corresponding title and description files if they exist
@@ -502,12 +537,17 @@ app.get('/', (_req: Request, res: Response) => {
           `${baseLibraryUrl}/files/${file}`
         )}&token=${ritaToken}`;
 
+        // Check if a preview image exists
+        const previewImagePath = path.join(previewDirectory, `${fileNameWithoutExt}.png`);
+        const previewImageUrl = fs.existsSync(previewImagePath) ? `/uploads/previews/${fileNameWithoutExt}.png` : '';
+
         return ` 
         <li class="file-item">
           <div class="file-icon">📄</div>
           <div class="file-info">
             <strong class="file-title">${title}</strong>
-            <p class="file-description">${description}</p>            
+            <p class="file-description">${description}</p>
+            ${previewImageUrl ? `<img src="${previewImageUrl}" alt="Preview Image" class="preview-image">` : ''}
             <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
           </div>
         </li>
@@ -570,7 +610,7 @@ app.get('/', (_req: Request, res: Response) => {
               <label for="image-upload" class="custom-file-upload button">
                 Lägg till förhandsvisningsbild
               </label>
-              <input id="image-upload" type="file" name="image" accept="image/*">
+              <input id="image-upload" type="file" name="image" accept="image/*" required>
               <div id="image-preview" style="display:none;">
                 <h3>Förhandsgranskning av bild:</h3>
                 <img id="preview" src="" alt="Image Preview" style="max-width: 300px; max-height: 300px;">
@@ -618,6 +658,7 @@ app.get('/', (_req: Request, res: Response) => {
 
           <script>
             const fileInput = document.getElementById('file-upload');
+            const imageInput = document.getElementById('image-upload');
             const saveButton = document.getElementById('save-button');
             const selectedFileDiv = document.getElementById('selected-file');
             const fileNameSpan = document.getElementById('file-name');
@@ -626,6 +667,14 @@ app.get('/', (_req: Request, res: Response) => {
             // Initially disable the save button
             saveButton.disabled = true;
 
+            function checkFilesSelected() {
+              if (fileInput.files.length > 0 && imageInput.files.length > 0) {
+                saveButton.disabled = false;
+              } else {
+                saveButton.disabled = true;
+              }
+            }
+
             fileInput.addEventListener('change', function() {
               // Check if a file is selected
               if (fileInput.files.length > 0) {
@@ -633,21 +682,19 @@ app.get('/', (_req: Request, res: Response) => {
                 const selectedFileName = fileInput.files[0].name;
                 fileNameSpan.textContent = selectedFileName;
                 selectedFileDiv.style.display = 'block'; // Show the file name
-
-                // Enable the "Spara" button
-                saveButton.disabled = false;
               } else {
-                // No file selected, keep the button disabled
-                saveButton.disabled = true;
                 selectedFileDiv.style.display = 'none'; // Hide the file name
               }
+              checkFilesSelected();
             });
+
+            imageInput.addEventListener('change', checkFilesSelected);
 
             // Prevent form submission if no file is selected (only for upload form)
             document.querySelector('form[action="/upload"]').addEventListener('submit', function(event) {
-              if (fileInput.files.length === 0) {
+              if (fileInput.files.length === 0 || imageInput.files.length === 0) {
                 event.preventDefault(); // Prevent form submission
-                alert('Du måste välja en fil först!'); // Notify user
+                alert('Du måste välja både en fil och en förhandsvisningsbild!'); // Notify user
               }
             });
           </script>
