@@ -19,8 +19,25 @@ const publicPath = path.join(__dirname, '../public'); // Static assets like CSS
 const FILES_PER_PAGE = 5; // Set the number of files per page
 
 // Ensure the files directory exists
-if (!fs.existsSync(filesDirectory)) {
-  fs.mkdirSync(filesDirectory);
+try {
+  if (!fs.existsSync(filesDirectory)) {
+    fs.mkdirSync(filesDirectory);
+  }
+} catch (err) {
+  const error = err as { message: string };
+  console.error(`Error creating files directory: ${error.message}`);
+  process.exit(1); // Exit the process if the directory cannot be created
+}
+
+// Ensure the files directory exists
+try {
+  if (!fs.existsSync(imagesPath)) {
+    fs.mkdirSync(imagesPath);
+  }
+} catch (err) {
+  const error = err as { message: string };
+  console.error(`Error creating files directory: ${error.message}`);
+  process.exit(1); // Exit the process if the directory cannot be created
 }
 
 // Configure Multer for file uploads
@@ -145,19 +162,17 @@ const imageStorage = multer.diskStorage({
   },
 });
 
-// Skapa en multer-instans för bilduppladdning
-const imageUpload = multer({
-  storage: imageStorage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
-  },
-}).single('image'); // En bild per uppladdning
-
-const previewDirectory = path.resolve(__dirname, 'public', 'uploads', 'previews');
+const previewDirectory = path.join(__dirname, '../previews'); // Change the path to a similar location as filesDirectory
 
 // Ensure the preview directory exists
-if (!fs.existsSync(previewDirectory)) {
-  fs.mkdirSync(previewDirectory, { recursive: true });
+try {
+  if (!fs.existsSync(previewDirectory)) {
+    fs.mkdirSync(previewDirectory);
+  }
+} catch (err) {
+  const error = err as { message: string };
+  console.error(`Error creating preview directory: ${error.message}`);
+  process.exit(1); // Exit the process if the directory cannot be created
 }
 
 // Function to generate an image preview URL (for display purposes)
@@ -378,8 +393,6 @@ app.post('/admin/remove/:filename', (req: Request, res: Response) => {
     try {
       // Delete the file
 
-      fs.unlinkSync(filePath);
-
       // Also delete the corresponding title and description files if they exist
       const titleFilePath = path.join(
         filesDirectory,
@@ -396,6 +409,12 @@ app.post('/admin/remove/:filename', (req: Request, res: Response) => {
 
       if (fs.existsSync(descriptionFilePath)) {
         fs.unlinkSync(descriptionFilePath);
+      }
+
+      // Also delete the corresponding preview image if it exists
+      const previewImagePath = path.join(previewDirectory, `${path.parse(filename).name}.png`);
+      if (fs.existsSync(previewImagePath)) {
+        fs.unlinkSync(previewImagePath);
       }
 
       // Redirect back to the admin page with a success message
