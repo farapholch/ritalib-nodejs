@@ -6,6 +6,7 @@ import cors from 'cors';
 import sanitizeHtml from 'sanitize-html';
 import rateLimit from 'express-rate-limit';
 import expressBasicAuth from 'express-basic-auth';
+import os from 'os';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,29 +30,16 @@ try {
   process.exit(1); // Exit the process if the directory cannot be created
 }
 
-// Ensure the files directory exists
-try {
-  if (!fs.existsSync(imagesPath)) {
-    fs.mkdirSync(imagesPath);
-  }
-} catch (err) {
-  const error = err as { message: string };
-  console.error(`Error creating files directory: ${error.message}`);
-  process.exit(1); // Exit the process if the directory cannot be created
-}
-
-// Configure Multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    // Se till att mappen 'files' finns
-    const uploadPath = path.join(__dirname, 'files'); // Byt till rätt sökväg
+    const uploadPath = path.join('/opt/app-root/src/files'); // Se till att detta är rätt path
     if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true }); // Skapa mappen om den inte finns
+      fs.mkdirSync(uploadPath, { recursive: true }); // Skapa om den saknas
     }
-    cb(null, uploadPath); // Filen sparas i 'files' mappen
+    cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname)); // Sätt filnamn med tidstämpel
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
   }
 });
 
@@ -95,7 +83,7 @@ const corsOptions = {
 };
 
 app.options('*', cors(corsOptions));
-app.set('trust proxy', true);
+app.set('trust proxy', 'loopback');
 // Serve other static assets
 app.use(cors(corsOptions));
 app.use(express.static(publicPath));
@@ -162,17 +150,36 @@ const imageStorage = multer.diskStorage({
   },
 });
 
-const previewDirectory = path.join(__dirname, '../previews'); // Change the path to a similar location as filesDirectory
+// Skapa en multer-instans för bilduppladdning
+const imageUpload = multer({
+  storage: imageStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
+  },
+}).single('image'); // En bild per uppladdning
+
+const previewDirectory = path.join('/opt/app-root/src/files', 'previews');
+let tempPreviewDirectory = previewDirectory;
 
 // Ensure the preview directory exists
 try {
   if (!fs.existsSync(previewDirectory)) {
-    fs.mkdirSync(previewDirectory);
+    fs.mkdirSync(previewDirectory, { recursive: true });
   }
 } catch (err) {
   const error = err as { message: string };
   console.error(`Error creating preview directory: ${error.message}`);
-  process.exit(1); // Exit the process if the directory cannot be created
+  // Use a temporary directory if the default directory cannot be created
+  tempPreviewDirectory = path.join(os.tmpdir(), 'previews');
+  try {
+    if (!fs.existsSync(tempPreviewDirectory)) {
+      fs.mkdirSync(tempPreviewDirectory, { recursive: true });
+    }
+  } catch (tempErr) {
+    const tempError = tempErr as { message: string };
+    console.error(`Error creating system temporary preview directory: ${tempError.message}`);
+    process.exit(1); // Exit the process if the temporary directory cannot be created
+  }
 }
 
 // Function to generate an image preview URL (for display purposes)
@@ -261,7 +268,8 @@ const uploadHandler = (req: MyRequest, res: Response): void => {
       return;
     }
 
-    fs.renameSync(file.path, newFilePath);
+    fs.copyFileSync(file.path, newFilePath);
+    fs.unlinkSync(file.path);
 
     console.log(`File uploaded: ${newFileName}`);
 
@@ -295,8 +303,9 @@ const uploadHandler = (req: MyRequest, res: Response): void => {
 
     // Save the image preview with the correct filename
     if (image) {
-      const imagePreviewPath = path.join(previewDirectory, `${path.parse(newFileName).name}${path.extname(image.originalname)}`);
-      fs.renameSync(image.path, imagePreviewPath);
+      const imagePreviewPath = path.join(tempPreviewDirectory, `${path.parse(newFileName).name}${path.extname(image.originalname)}`);
+      fs.copyFileSync(image.path, imagePreviewPath);
+      fs.unlinkSync(image.path);
     }
 
     // Redirect to the main page after successful upload
@@ -384,47 +393,38 @@ app.get('/admin', (_req: Request, res: Response) => {
 });
 
 // Remove file from the server
-app.post('/admin/remove/:filename', (req: Request, res: Response) => {
+app.post('/admin/remove/:filename', async (req: Request, res: Response) => {
   const { filename } = req.params;
   const filePath = path.join(filesDirectory, filename);
+  const titleFilePath = path.join(filesDirectory, `${path.parse(filename).name}_title.txt`);
+  const descriptionFilePath = path.join(filesDirectory, `${path.parse(filename).name}_description.txt`);
+  const previewImagePath = path.join(previewDirectory, `${path.parse(filename).name}.png`);
 
-  // Check if the file exists
-  if (fs.existsSync(filePath)) {
-    try {
-      // Delete the file
-
-      // Also delete the corresponding title and description files if they exist
-      const titleFilePath = path.join(
-        filesDirectory,
-        `${path.parse(filename).name}_title.txt`
-      );
-      const descriptionFilePath = path.join(
-        filesDirectory,
-        `${path.parse(filename).name}_description.txt`
-      );
-
-      if (fs.existsSync(titleFilePath)) {
-        fs.unlinkSync(titleFilePath);
-      }
-
-      if (fs.existsSync(descriptionFilePath)) {
-        fs.unlinkSync(descriptionFilePath);
-      }
-
-      // Also delete the corresponding preview image if it exists
-      const previewImagePath = path.join(previewDirectory, `${path.parse(filename).name}.png`);
-      if (fs.existsSync(previewImagePath)) {
-        fs.unlinkSync(previewImagePath);
-      }
-
-      // Redirect back to the admin page with a success message
-      res.redirect('/admin');
-    } catch (err) {
-      console.error('Error removing file:', err);
-      res.status(500).send('Error removing file.');
+  try {
+    if (fs.existsSync(filePath)) {
+      await fs.promises.unlink(filePath);
+      console.log(`Deleted file: ${filePath}`);
     }
-  } else {
-    res.status(404).send('File not found.');
+
+    if (fs.existsSync(titleFilePath)) {
+      await fs.promises.unlink(titleFilePath);
+      console.log(`Deleted title: ${titleFilePath}`);
+    }
+
+    if (fs.existsSync(descriptionFilePath)) {
+      await fs.promises.unlink(descriptionFilePath);
+      console.log(`Deleted description: ${descriptionFilePath}`);
+    }
+
+    if (fs.existsSync(previewImagePath)) {
+      await fs.promises.unlink(previewImagePath);
+      console.log(`Deleted preview image: ${previewImagePath}`);
+    }
+
+    res.redirect('/admin');
+  } catch (err) {
+    console.error('Error removing file:', err);
+    res.status(500).send('Error removing file.');
   }
 });
 
@@ -578,7 +578,7 @@ app.get('/', (_req: Request, res: Response) => {
     const totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
     const paginationLinks = Array.from({ length: totalPages }, (_, index) => {
       const pageNumber = index + 1;
-      return `<a href="/?page=${pageNumber}&search=${searchQuery}" class="page-link">${pageNumber}</a>`;
+      return `<a href="/?page=${pageNumber}&search=${searchQuery}&token=${ritaToken}" class="page-link">${pageNumber}</a>`;
     }).join(' ');
 
     res.send(`<!DOCTYPE html>
@@ -602,6 +602,7 @@ app.get('/', (_req: Request, res: Response) => {
 
           <!-- Search Form -->
           <form method="GET" action="/">
+            <input type="hidden" name="token" value="${ritaToken}">
             <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">
             <button type="submit" class="button">Sök</button>
           </form>
