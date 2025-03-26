@@ -89,6 +89,8 @@ app.use(cors(corsOptions));
 app.use(express.static(publicPath));
 app.use('/images', express.static(imagesPath));
 app.use('/files', cors(corsOptions), express.static(filesDirectory));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 // Define a basic password for the /admin page
 const ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
@@ -353,38 +355,58 @@ app.get('/admin', (_req: Request, res: Response) => {
       return;
     }
 
-    // Filter out non-excalidrawlib files
     const excalidrawFiles = files.filter(
       (file) => path.extname(file) === '.excalidrawlib'
     );
 
-    // Generate HTML list of files with remove buttons
     const fileList = excalidrawFiles
       .map((file) => {
+        const baseName = file.replace(/\.excalidrawlib$/, '');
+        const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
+        const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
+        let description = '';
+        let title = baseName;
+
+        try {
+          if (fs.existsSync(descriptionPath)) {
+            description = fs.readFileSync(descriptionPath, 'utf-8').trim();
+          }
+          if (fs.existsSync(titlePath)) {
+            title = fs.readFileSync(titlePath, 'utf-8').trim();
+          }
+        } catch (err: any) {
+          console.error(`Error reading file metadata: ${err.message}`);
+        }
+
         return `
-        <li class="file-item">
-          <span>${file}</span>
-          <form action="/admin/remove/${file}" method="POST" style="display:inline;">
-            <button type="submit" class="button">Ta bort fil</button>
-          </form>
-        </li>
-      `;
+          <li class="file-item">
+            <span><strong>${title}</strong> (${file})</span>
+            <form action="/admin/edit/${file}" method="POST" style="display:inline;">
+              <input type="text" name="title" value="${title}" placeholder="Titel" required>
+              <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
+              <button type="submit" class="button">Spara ändringar</button>
+            </form>
+            <form action="/admin/remove/${file}" method="POST" style="display:inline;">
+              <button type="submit" class="button">Ta bort fil</button>
+            </form>
+          </li>
+        `;
       })
-      .join(' ');
+      .join('\n');
 
     res.send(`
       <!DOCTYPE html>
-      <html lang="en">
+      <html lang="sv">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Ritabibliotek Admin - Hantera Filer</title>
+        <title>Ritabibliotek Admin</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
       </head>
       <body>
         <h1>Admin - Hantera filer i Rita Bibliotek :)</h1>
-        <p>Klicka för att ta bort en fil</p>
+        <p>Klicka för att ta bort en fil eller ändra titel & beskrivning</p>
         <ul>${fileList}</ul>
       </body>
       </html>
@@ -392,7 +414,67 @@ app.get('/admin', (_req: Request, res: Response) => {
   });
 });
 
-// Remove file from the server
+app.post('/admin/edit/:filename', (req: Request, res: Response) => {
+  const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
+  const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
+  const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
+  const { title, description } = req.body;
+
+  if (!title || title.trim() === '' || !description || description.trim() === '') {
+    res.status(400).send('Titel och beskrivning får inte vara tomma.');
+    return;
+  }
+
+  fs.writeFile(descriptionPath, description.trim(), (err) => {
+    if (err) {
+      console.error(`Error saving description: ${err.message}`);
+      res.status(500).send('Kunde inte spara beskrivningen.');
+      return;
+    }
+
+    fs.writeFile(titlePath, title.trim(), (err) => {
+      if (err) {
+        console.error(`Error saving title: ${err.message}`);
+        res.status(500).send('Kunde inte spara titeln.');
+        return;
+      }
+
+      res.redirect('/admin');
+    });
+  });
+});
+
+
+app.post('/admin/edit/:filename', (req: Request, res: Response) => {
+  const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
+  const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
+  const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
+  const { title, description } = req.body;
+
+  if (!title || title.trim() === '' || !description || description.trim() === '') {
+    res.status(400).send('Titel och beskrivning får inte vara tomma.');
+    return;
+  }
+
+  fs.writeFile(descriptionPath, description.trim(), (err: any) => {
+    if (err) {
+      console.error(`Error saving description: ${err.message}`);
+      res.status(500).send('Kunde inte spara beskrivningen.');
+      return;
+    }
+
+    fs.writeFile(titlePath, title.trim(), (err: any) => {
+      if (err) {
+        console.error(`Error saving title: ${err.message}`);
+        res.status(500).send('Kunde inte spara titeln.');
+        return;
+      }
+
+      res.redirect('/admin');
+    });
+  });
+});
+ 
 app.post('/admin/remove/:filename', async (req: Request, res: Response) => {
   const { filename } = req.params;
   const filePath = path.join(filesDirectory, filename);
@@ -734,6 +816,66 @@ app.get('/', (_req: Request, res: Response) => {
     </html>
     `);
   });
+});
+
+app.post('/admin/edit', upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'image', maxCount: 1 }
+]), async (req: Request, res: Response) => {
+  const { filename, title, description } = req.body;
+  const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+
+  const file = files?.file ? files.file[0] : null;
+  const image = files?.image ? files.image[0] : null;
+
+  // Log the received data
+  console.log(`Received edit request for filename: ${filename}, title: ${title}, description: ${description}`);
+
+  if (!filename || !title || !description) {
+    console.error('Missing required fields: filename, title, or description');
+    res.status(400).send('Missing required fields: filename, title, or description');
+    return;
+  }
+
+  const titleFilePath = path.join(filesDirectory, `${filename}_title.txt`);
+  const descriptionFilePath = path.join(filesDirectory, `${filename}_description.txt`);
+
+  try {
+    // Sanitize and save the new title
+    const sanitizedTitle = sanitizeText(title, 30);
+    fs.writeFileSync(titleFilePath, sanitizedTitle);
+    console.log(`Title saved to: ${titleFilePath}`);
+
+    // Sanitize and save the new description
+    const sanitizedDescription = sanitizeHtml(description, {
+      allowedTags: [],
+      allowedAttributes: {},
+    });
+    fs.writeFileSync(descriptionFilePath, sanitizedDescription);
+    console.log(`Description saved to: ${descriptionFilePath}`);
+
+    // Handle new file upload
+    if (file) {
+      const newFilePath = path.join(filesDirectory, `${filename}.excalidrawlib`);
+      fs.copyFileSync(file.path, newFilePath);
+      fs.unlinkSync(file.path);
+      console.log(`File updated: ${newFilePath}`);
+    }
+
+    // Handle new image upload
+    if (image) {
+      const imagePreviewPath = path.join(previewDirectory, `${filename}${path.extname(image.originalname)}`);
+      fs.copyFileSync(image.path, imagePreviewPath);
+      fs.unlinkSync(image.path);
+      console.log(`Image updated: ${imagePreviewPath}`);
+    }
+
+    console.log(`Updated title, description, file, and image for ${filename}`);
+    res.redirect('/admin');
+  } catch (err) {
+    console.error('Error updating file information:', err);
+    res.status(500).send('Error updating file information.');
+  }
 });
 
 // Start server

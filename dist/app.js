@@ -32,6 +32,42 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __generator = (this && this.__generator) || function (thisArg, body) {
+    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
+    return g.next = verb(0), g["throw"] = verb(1), g["return"] = verb(2), typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
+    function verb(n) { return function (v) { return step([n, v]); }; }
+    function step(op) {
+        if (f) throw new TypeError("Generator is already executing.");
+        while (g && (g = 0, op[0] && (_ = 0)), _) try {
+            if (f = 1, y && (t = op[0] & 2 ? y["return"] : op[0] ? y["throw"] || ((t = y["return"]) && t.call(y), 0) : y.next) && !(t = t.call(y, op[1])).done) return t;
+            if (y = 0, t) op = [op[0] & 2, t.value];
+            switch (op[0]) {
+                case 0: case 1: t = op; break;
+                case 4: _.label++; return { value: op[1], done: false };
+                case 5: _.label++; y = op[1]; op = [0]; continue;
+                case 7: op = _.ops.pop(); _.trys.pop(); continue;
+                default:
+                    if (!(t = _.trys, t = t.length > 0 && t[t.length - 1]) && (op[0] === 6 || op[0] === 2)) { _ = 0; continue; }
+                    if (op[0] === 3 && (!t || (op[1] > t[0] && op[1] < t[3]))) { _.label = op[1]; break; }
+                    if (op[0] === 6 && _.label < t[1]) { _.label = t[1]; t = op; break; }
+                    if (t && _.label < t[2]) { _.label = t[2]; _.ops.push(op); break; }
+                    if (t[2]) _.ops.pop();
+                    _.trys.pop(); continue;
+            }
+            op = body.call(thisArg, _);
+        } catch (e) { op = [6, e]; y = 0; } finally { f = t = 0; }
+        if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
+    }
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -44,6 +80,7 @@ var cors_1 = __importDefault(require("cors"));
 var sanitize_html_1 = __importDefault(require("sanitize-html"));
 var express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 var express_basic_auth_1 = __importDefault(require("express-basic-auth"));
+var os_1 = __importDefault(require("os"));
 var app = (0, express_1.default)();
 var PORT = process.env.PORT || 3000;
 // Define directories
@@ -53,32 +90,45 @@ var publicPath = path_1.default.join(__dirname, '../public'); // Static assets l
 // Pagination configuration
 var FILES_PER_PAGE = 5; // Set the number of files per page
 // Ensure the files directory exists
-if (!fs_1.default.existsSync(filesDirectory)) {
-    fs_1.default.mkdirSync(filesDirectory);
+try {
+    if (!fs_1.default.existsSync(filesDirectory)) {
+        fs_1.default.mkdirSync(filesDirectory);
+    }
 }
-// Configure Multer for file uploads
+catch (err) {
+    var error = err;
+    console.error("Error creating files directory: ".concat(error.message));
+    process.exit(1); // Exit the process if the directory cannot be created
+}
 var storage = multer_1.default.diskStorage({
-    destination: function (_req, _file, cb) {
-        cb(null, filesDirectory);
+    destination: function (req, file, cb) {
+        var uploadPath = path_1.default.join('/opt/app-root/src/files'); // Se till att detta är rätt path
+        if (!fs_1.default.existsSync(uploadPath)) {
+            fs_1.default.mkdirSync(uploadPath, { recursive: true }); // Skapa om den saknas
+        }
+        cb(null, uploadPath);
     },
-    filename: function (_req, file, cb) {
-        cb(null, file.originalname);
-    },
+    filename: function (req, file, cb) {
+        cb(null, file.fieldname + '-' + Date.now() + path_1.default.extname(file.originalname));
+    }
 });
 var upload = (0, multer_1.default)({
     storage: storage,
-    fileFilter: function (_req, file, cb) {
-        var allowedExtension = '.excalidrawlib'; // Define the only allowed extension
+    fileFilter: function (req, file, cb) {
+        console.log("Full file object:", file); // Debugging
+        console.log("Received file: ".concat(file.originalname, ", Extension: ").concat(path_1.default.extname(file.originalname).toLowerCase()));
+        // Tillåtna filtyper
+        var allowedExtensions = ['.excalidrawlib', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
         var ext = path_1.default.extname(file.originalname).toLowerCase();
-        if (ext === allowedExtension) {
-            cb(null, true); // Accept the file
+        if (allowedExtensions.includes(ext)) {
+            cb(null, true); // Acceptera filen
         }
         else {
-            cb(new Error("Invalid file type. Only ".concat(allowedExtension, " files are allowed."))); // Reject files with other extensions
+            cb(new Error("Invalid file type. Only ".concat(allowedExtensions.join(', '), " files are allowed.")));
         }
     },
     limits: {
-        fileSize: 10 * 1024 * 1024, // 10 MB limit in bytes
+        fileSize: 10 * 1024 * 1024, // 10 MB
     },
 });
 var validateFileContent = function (filePath) {
@@ -99,7 +149,7 @@ var corsOptions = {
     allowedHeaders: ['Content-Type', 'Authorization'],
 };
 app.options('*', (0, cors_1.default)(corsOptions));
-app.set('trust proxy', true);
+app.set('trust proxy', 'loopback');
 // Serve other static assets
 app.use((0, cors_1.default)(corsOptions));
 app.use(express_1.default.static(publicPath));
@@ -139,86 +189,140 @@ var uploadLimiter = (0, express_rate_limit_1.default)({
     max: 10, // Limit to 10 requests per 15 minutes
     message: 'Too many upload requests, please try again later.',
 });
-// Handle file uploads
-app.post('/upload', uploadLimiter, upload.single('file'), function (req, res) {
-    var file = req.file;
-    var title = req.body.title; // Capture the title
-    var description = req.body.description; // Capture the description
-    if (!file) {
-        res.status(400).send('No file uploaded.');
-        return; // Stop further execution
+// Lägg till en ny multer-konfiguration för att hantera bilder
+var imageStorage = multer_1.default.diskStorage({
+    destination: function (_req, _file, cb) {
+        cb(null, imagesPath); // Spara bilderna i 'images' katalogen
+    },
+    filename: function (_req, file, cb) {
+        var fileExtension = path_1.default.extname(file.originalname).toLowerCase();
+        var sanitizedFileName = "".concat(Date.now()).concat(fileExtension);
+        cb(null, sanitizedFileName); // Skapa ett unikt filnamn för varje bild
+    },
+});
+// Skapa en multer-instans för bilduppladdning
+var imageUpload = (0, multer_1.default)({
+    storage: imageStorage,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
+    },
+}).single('image'); // En bild per uppladdning
+var previewDirectory = path_1.default.join('/opt/app-root/src/files', 'previews');
+var tempPreviewDirectory = previewDirectory;
+// Ensure the preview directory exists
+try {
+    if (!fs_1.default.existsSync(previewDirectory)) {
+        fs_1.default.mkdirSync(previewDirectory, { recursive: true });
+    }
+}
+catch (err) {
+    var error = err;
+    console.error("Error creating preview directory: ".concat(error.message));
+    // Use a temporary directory if the default directory cannot be created
+    tempPreviewDirectory = path_1.default.join(os_1.default.tmpdir(), 'previews');
+    try {
+        if (!fs_1.default.existsSync(tempPreviewDirectory)) {
+            fs_1.default.mkdirSync(tempPreviewDirectory, { recursive: true });
+        }
+    }
+    catch (tempErr) {
+        var tempError = tempErr;
+        console.error("Error creating system temporary preview directory: ".concat(tempError.message));
+        process.exit(1); // Exit the process if the temporary directory cannot be created
+    }
+}
+// Function to generate an image preview URL (for display purposes)
+var getImagePreview = function (filePath) {
+    var fileExt = path_1.default.extname(filePath).toLowerCase();
+    if (fileExt === '.jpg' || fileExt === '.jpeg' || fileExt === '.png' || fileExt === '.gif') {
+        // You could also generate a smaller image here using a library like sharp, if needed
+        return path_1.default.join('/uploads/previews', path_1.default.basename(filePath));
+    }
+    return '';
+};
+// Serve uploaded images
+app.use('/uploads/previews', express_1.default.static(previewDirectory));
+// Middleware för uppladdning
+var uploadHandler = function (req, res) {
+    var _a, _b;
+    var file = ((_a = req.files) === null || _a === void 0 ? void 0 : _a.file) ? req.files.file[0] : null; // Typa som file[0]
+    var image = ((_b = req.files) === null || _b === void 0 ? void 0 : _b.image) ? req.files.image[0] : null; // Typa som image[0]
+    var title = req.body.title;
+    var description = req.body.description;
+    if (!file || !image) {
+        res.status(400).send('Both file and preview image must be uploaded.');
+        return;
+    }
+    // Här fortsätter din logik för filvalidering, titel, beskrivning etc.
+    var imagePreviewUrl = '';
+    if (image) {
+        var imagePreview = getImagePreview(image.path); // Generera bildens förhandsvisning
+        imagePreviewUrl = imagePreview; // Set the image preview URL
+        // Hantera bilden som du gör med huvudfilen
     }
     // Validate the file content
     var isValidContent = validateFileContent(file.path);
     if (!isValidContent) {
-        fs_1.default.unlinkSync(file.path); // Delete the file if it's invalid
-        res
-            .status(400)
-            .send('Invalid file content. The file must contain validated JSON.');
+        fs_1.default.unlinkSync(file.path);
+        res.status(400).send('Invalid file content. The file must contain validated JSON.');
         return;
     }
     // Ensure title is provided
     if (!title) {
-        title = 'Untitled'; // Default title if none is provided
+        title = 'Untitled';
     }
     var MAX_TITLE_LENGTH = 30;
     var sanitizedTitle = sanitizeText(title, MAX_TITLE_LENGTH);
     // Check if title already exists in the directory
     if (checkIfTitleExists(sanitizedTitle)) {
         console.log("File with title \"".concat(sanitizedTitle, "\" already exists."));
-        fs_1.default.unlinkSync(file.path); // Delete the temporary file
-        res
-            .status(400)
-            .send('A template with this name already exists. Please choose a different name.');
-        return; // Stop further processing
+        fs_1.default.unlinkSync(file.path);
+        res.status(400).send('A template with this name already exists. Please choose a different name.');
+        return;
     }
-    // **SANITIZED FILE PATH CHECK**
     var safeFilePath = path_1.default.resolve(filesDirectory, sanitizedTitle + '.excalidrawlib');
     if (!safeFilePath.startsWith(filesDirectory)) {
-        fs_1.default.unlinkSync(file.path); // Delete the temporary file
+        fs_1.default.unlinkSync(file.path);
         res.status(400).send('Invalid file path.');
-        return; // Stop further execution
+        return;
     }
-    // Define the new file name and path
     var newFileName = sanitizedTitle + path_1.default.extname(file.originalname);
     var newFilePath = path_1.default.join(filesDirectory, newFileName);
     try {
         // Check if the file already exists in the directory
         if (fs_1.default.existsSync(newFilePath)) {
-            // If file exists, reject upload
-            fs_1.default.unlinkSync(file.path); // Delete the temporary file
-            res
-                .status(400)
-                .send('En fil med det namnet finns redan, välj ett annat namn.');
-            return; // Stop further execution
+            fs_1.default.unlinkSync(file.path);
+            res.status(400).send('En fil med det namnet finns redan, välj ett annat namn.');
+            return;
         }
-        // Move the file to the new path
-        fs_1.default.renameSync(file.path, newFilePath);
-        // Log the upload event
+        fs_1.default.copyFileSync(file.path, newFilePath);
+        fs_1.default.unlinkSync(file.path);
         console.log("File uploaded: ".concat(newFileName));
-        // Save the title as a separate text file (optional)
         var titleFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(newFileName).name, "_title.txt"));
         if (title.trim()) {
             fs_1.default.writeFileSync(titleFilePath, title.trim());
         }
-        // Validate and sanitize the description
         var MAX_DESCRIPTION_LENGTH = 150;
         var sanitizedDescription = (0, sanitize_html_1.default)(description, {
-            allowedTags: [], // No HTML tags allowed
-            allowedAttributes: {}, // No attributes allowed
+            allowedTags: [],
+            allowedAttributes: {},
         });
         if (sanitizedDescription.length > MAX_DESCRIPTION_LENGTH) {
-            fs_1.default.unlinkSync(newFilePath); // Delete the uploaded file if the description is invalid
-            res
-                .status(400)
-                .send("Description must be less than ".concat(MAX_DESCRIPTION_LENGTH, " characters."));
+            fs_1.default.unlinkSync(newFilePath);
+            res.status(400).send("Description must be less than ".concat(MAX_DESCRIPTION_LENGTH, " characters."));
             return;
         }
         if (sanitizedDescription) {
             var descriptionFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(newFileName).name, "_description.txt"));
-            fs_1.default.writeFileSync(descriptionFilePath, sanitizedDescription); // Save sanitized description as text
+            fs_1.default.writeFileSync(descriptionFilePath, sanitizedDescription);
         }
-        // Redirect back to the main page
+        // Save the image preview with the correct filename
+        if (image) {
+            var imagePreviewPath = path_1.default.join(tempPreviewDirectory, "".concat(path_1.default.parse(newFileName).name).concat(path_1.default.extname(image.originalname)));
+            fs_1.default.copyFileSync(image.path, imagePreviewPath);
+            fs_1.default.unlinkSync(image.path);
+        }
+        // Redirect to the main page after successful upload
         res.redirect('/');
         console.log("Title saved: ".concat(titleFilePath));
         console.log("Description saved: ".concat(sanitizedDescription));
@@ -228,12 +332,16 @@ app.post('/upload', uploadLimiter, upload.single('file'), function (req, res) {
         res.status(500).send('Internal server error');
     }
     finally {
-        // Cleanup: Ensure temporary file is deleted
         if (file && fs_1.default.existsSync(file.path)) {
             fs_1.default.unlinkSync(file.path);
         }
     }
-});
+};
+// Middleware för uppladdning
+app.post('/upload', uploadLimiter, upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'image', maxCount: 1 }
+]), uploadHandler);
 // Error handling for file uploads
 app.use(function (err, _req, res, next) {
     if (err instanceof multer_1.MulterError || err.message) {
@@ -263,35 +371,58 @@ app.get('/admin', function (_req, res) {
     });
 });
 // Remove file from the server
-app.post('/admin/remove/:filename', function (req, res) {
-    var filename = req.params.filename;
-    var filePath = path_1.default.join(filesDirectory, filename);
-    // Check if the file exists
-    if (fs_1.default.existsSync(filePath)) {
-        try {
-            // Delete the file
-            fs_1.default.unlinkSync(filePath);
-            // Also delete the corresponding title and description files if they exist
-            var titleFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(filename).name, "_title.txt"));
-            var descriptionFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(filename).name, "_description.txt"));
-            if (fs_1.default.existsSync(titleFilePath)) {
-                fs_1.default.unlinkSync(titleFilePath);
-            }
-            if (fs_1.default.existsSync(descriptionFilePath)) {
-                fs_1.default.unlinkSync(descriptionFilePath);
-            }
-            // Redirect back to the admin page with a success message
-            res.redirect('/admin');
+app.post('/admin/remove/:filename', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var filename, filePath, titleFilePath, descriptionFilePath, previewImagePath, err_1;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                filename = req.params.filename;
+                filePath = path_1.default.join(filesDirectory, filename);
+                titleFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(filename).name, "_title.txt"));
+                descriptionFilePath = path_1.default.join(filesDirectory, "".concat(path_1.default.parse(filename).name, "_description.txt"));
+                previewImagePath = path_1.default.join(previewDirectory, "".concat(path_1.default.parse(filename).name, ".png"));
+                _a.label = 1;
+            case 1:
+                _a.trys.push([1, 10, , 11]);
+                if (!fs_1.default.existsSync(filePath)) return [3 /*break*/, 3];
+                return [4 /*yield*/, fs_1.default.promises.unlink(filePath)];
+            case 2:
+                _a.sent();
+                console.log("Deleted file: ".concat(filePath));
+                _a.label = 3;
+            case 3:
+                if (!fs_1.default.existsSync(titleFilePath)) return [3 /*break*/, 5];
+                return [4 /*yield*/, fs_1.default.promises.unlink(titleFilePath)];
+            case 4:
+                _a.sent();
+                console.log("Deleted title: ".concat(titleFilePath));
+                _a.label = 5;
+            case 5:
+                if (!fs_1.default.existsSync(descriptionFilePath)) return [3 /*break*/, 7];
+                return [4 /*yield*/, fs_1.default.promises.unlink(descriptionFilePath)];
+            case 6:
+                _a.sent();
+                console.log("Deleted description: ".concat(descriptionFilePath));
+                _a.label = 7;
+            case 7:
+                if (!fs_1.default.existsSync(previewImagePath)) return [3 /*break*/, 9];
+                return [4 /*yield*/, fs_1.default.promises.unlink(previewImagePath)];
+            case 8:
+                _a.sent();
+                console.log("Deleted preview image: ".concat(previewImagePath));
+                _a.label = 9;
+            case 9:
+                res.redirect('/admin');
+                return [3 /*break*/, 11];
+            case 10:
+                err_1 = _a.sent();
+                console.error('Error removing file:', err_1);
+                res.status(500).send('Error removing file.');
+                return [3 /*break*/, 11];
+            case 11: return [2 /*return*/];
         }
-        catch (err) {
-            console.error('Error removing file:', err);
-            res.status(500).send('Error removing file.');
-        }
-    }
-    else {
-        res.status(404).send('File not found.');
-    }
-});
+    });
+}); });
 // Serve file from /files/:filename
 app.get('/files/:filename', function (req, res, next) {
     var filename = req.params.filename;
@@ -379,16 +510,19 @@ app.get('/', function (_req, res) {
             // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
             // const baseApp = 'rita-utv.sp.trafikverket.se';
             var excalidrawLink = "https://".concat(baseApp, "#addLibrary=").concat(encodeURIComponent("".concat(baseLibraryUrl, "/files/").concat(file)), "&token=").concat(ritaToken);
-            return " \n        <li class=\"file-item\">\n          <div class=\"file-icon\">\uD83D\uDCC4</div>\n          <div class=\"file-info\">\n            <strong class=\"file-title\">".concat(title, "</strong>\n            <p class=\"file-description\">").concat(description, "</p>            \n            <a href=\"").concat(excalidrawLink, "\" class=\"button\" target=\"_excalidraw\" onclick=\"trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')\" aria-label=\"Open ").concat(title, " in Rita\">L\u00E4gg till i Rita</a>\n          </div>\n        </li>\n      ");
+            // Check if a preview image exists
+            var previewImagePath = path_1.default.join(previewDirectory, "".concat(fileNameWithoutExt, ".png"));
+            var previewImageUrl = fs_1.default.existsSync(previewImagePath) ? "/uploads/previews/".concat(fileNameWithoutExt, ".png") : '';
+            return " \n        <li class=\"file-item\">\n          <div class=\"file-icon\">\uD83D\uDCC4</div>\n          <div class=\"file-info\">\n            <strong class=\"file-title\">".concat(title, "</strong>\n            <p class=\"file-description\">").concat(description, "</p>\n            ").concat(previewImageUrl ? "<img src=\"".concat(previewImageUrl, "\" alt=\"Preview Image\" class=\"preview-image\">") : '', "\n            <a href=\"").concat(excalidrawLink, "\" class=\"button\" target=\"_excalidraw\" onclick=\"trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')\" aria-label=\"Open ").concat(title, " in Rita\">L\u00E4gg till i Rita</a>\n          </div>\n        </li>\n      ");
         })
             .join(' ');
         // Generate pagination links
         var totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
         var paginationLinks = Array.from({ length: totalPages }, function (_, index) {
             var pageNumber = index + 1;
-            return "<a href=\"/?page=".concat(pageNumber, "&search=").concat(searchQuery, "\" class=\"page-link\">").concat(pageNumber, "</a>");
+            return "<a href=\"/?page=".concat(pageNumber, "&search=").concat(searchQuery, "&token=").concat(ritaToken, "\" class=\"page-link\">").concat(pageNumber, "</a>");
         }).join(' ');
-        res.send("<!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Rita Bibliotek</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">        \n        <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/images/favicon-32x32.png\" />\n        <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/images/favicon-16x16.png\" />\n      </head>\n      <body>\n        <div class=\"content\">\n          <img src=\"/images/TV_Logo_Red.png\" alt=\"Logo\">\n          <h1>Rita Bibliotek</h1>\n\n          <p>H\u00E4r \u00E4r en samling symboler som kan anv\u00E4ndas i Rita.</p>\n          <p class=\"sub\">Klicka p\u00E5 l\u00E4nkarna f\u00F6r att l\u00E4gga till</p>\n\n          <!-- Search Form -->\n          <form method=\"GET\" action=\"/\">\n            <input type=\"text\" name=\"search\" placeholder=\"S\u00F6k efter symboler...\" value=\"".concat(searchQuery, "\">\n            <button type=\"submit\" class=\"button\">S\u00F6k</button>\n          </form>\n\n          <ul>").concat(fileList, "</ul>\n\n          <div class=\"pagination\">\n            ").concat(paginationLinks, "\n          </div>\n\n          <!-- Line separating the upload section -->\n          <hr class=\"upload-separator\">        \n\n          <!-- Upload Form -->\n          <form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"upload-group\">\n              <div class=\"file-upload-container\">\n                <label for=\"file-upload\" class=\"custom-file-upload button\">\n                  L\u00E4gg till biblioteksfil\n                </label>\n                <input id=\"file-upload\" type=\"file\" name=\"file\" accept=\".excalidrawlib\" required>\n              </div>\n\n              <div id=\"selected-file\" style=\"display:none;\">\n                <p><strong>Vald fil:</strong> <span id=\"file-name\"></span></p>\n              </div>\n\n              <div class=\"title-container\">\n                <label for=\"title\">Titel:</label>\n                <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Skriv en titel h\u00E4r...\" required>\n              </div>\n\n              <div class=\"description-container\">\n                <label for=\"description\">Beskrivning:</label>\n                <textarea id=\"description\" name=\"description\" rows=\"4\" cols=\"50\" placeholder=\"Skriv en beskrivning av biblioteket h\u00E4r...\" required></textarea>\n              </div>\n\n              <div class=\"button-container\">\n                <button type=\"submit\" class=\"button\" id=\"save-button\" disabled>Spara</button>\n              </div>\n\n              <!-- Display the status \"v\u00E4ntar\" after file upload -->\n              <div id=\"upload-status\" style=\"display:none;\">\n                V\u00E4ntar p\u00E5 uppladdning...\n              </div>\n            </div>\n          </form>\n\n          <script>\n            const fileInput = document.getElementById('file-upload');\n            const saveButton = document.getElementById('save-button');\n            const selectedFileDiv = document.getElementById('selected-file');\n            const fileNameSpan = document.getElementById('file-name');\n            const uploadStatus = document.getElementById('upload-status');\n\n            // Initially disable the save button\n            saveButton.disabled = true;\n\n            fileInput.addEventListener('change', function() {\n              // Check if a file is selected\n              if (fileInput.files.length > 0) {\n                // Show the selected file name\n                const selectedFileName = fileInput.files[0].name;\n                fileNameSpan.textContent = selectedFileName;\n                selectedFileDiv.style.display = 'block'; // Show the file name\n\n                // Enable the \"Spara\" button\n                saveButton.disabled = false;\n              } else {\n                // No file selected, keep the button disabled\n                saveButton.disabled = true;\n                selectedFileDiv.style.display = 'none'; // Hide the file name\n              }\n            });\n\n            // Prevent form submission if no file is selected (only for upload form)\n            document.querySelector('form[action=\"/upload\"]').addEventListener('submit', function(event) {\n              if (fileInput.files.length === 0) {\n                event.preventDefault(); // Prevent form submission\n                alert('Du m\u00E5ste v\u00E4lja en fil f\u00F6rst!'); // Notify user\n              }\n            });\n          </script>\n        </div>\n        <footer>\n          <div class=\"footer-content\">\n            <p>&copy; 2025 Rita Bibliotek</p>\n            <p>\n              Kontakta oss p\u00E5\n              <a href=\"mailto:rita@trafikverket.se\">rita@trafikverket.se</a>\n              eller p\u00E5 <a href=\"https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita\" target=\"_blank\">Mattermost</a>\n              f\u00F6r fr\u00E5gor eller feedback.\n            </p>\n          </div>\n        </footer>\n      </body>\n    </html>\n    "));
+        res.send("<!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Rita Bibliotek</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">        \n        <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/images/favicon-32x32.png\" />\n        <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/images/favicon-16x16.png\" />\n      </head>\n      <body>\n        <div class=\"content\">\n          <img src=\"/images/TV_Logo_Red.png\" alt=\"Logo\">\n          <h1>Rita Bibliotek</h1>\n\n          <p>H\u00E4r \u00E4r en samling symboler som kan anv\u00E4ndas i Rita.</p>\n          <p class=\"sub\">Klicka p\u00E5 l\u00E4nkarna f\u00F6r att l\u00E4gga till</p>\n\n          <!-- Search Form -->\n          <form method=\"GET\" action=\"/\">\n            <input type=\"hidden\" name=\"token\" value=\"".concat(ritaToken, "\">\n            <input type=\"text\" name=\"search\" placeholder=\"S\u00F6k efter symboler...\" value=\"").concat(searchQuery, "\">\n            <button type=\"submit\" class=\"button\">S\u00F6k</button>\n          </form>\n\n          <ul>").concat(fileList, "</ul>\n\n          <div class=\"pagination\">\n            ").concat(paginationLinks, "\n          </div>\n\n          <!-- Line separating the upload section -->\n          <hr class=\"upload-separator\">        \n\n          <!-- Upload Form -->\n          <form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"upload-group\">\n              <div class=\"file-upload-container\">\n                <label for=\"file-upload\" class=\"custom-file-upload button\">\n                  L\u00E4gg till biblioteksfil\n                </label>\n                <input id=\"file-upload\" type=\"file\" name=\"file\" accept=\".excalidrawlib\" required>\n              </div>\n\n               <div class=\"image-upload-container\">\n              <label for=\"image-upload\" class=\"custom-file-upload button\">\n                L\u00E4gg till f\u00F6rhandsvisningsbild\n              </label>\n              <input id=\"image-upload\" type=\"file\" name=\"image\" accept=\"image/*\" required>\n              <div id=\"image-preview\" style=\"display:none;\">\n                <h3>F\u00F6rhandsgranskning av bild:</h3>\n                <img id=\"preview\" src=\"\" alt=\"Image Preview\" style=\"max-width: 300px; max-height: 300px;\">\n              </div>\n            </div>  \n\n              <div id=\"selected-file\" style=\"display:none;\">\n                <p><strong>Vald fil:</strong> <span id=\"file-name\"></span></p>\n              </div>\n\n              <div class=\"title-container\">\n                <label for=\"title\">Titel:</label>\n                <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Skriv en titel h\u00E4r...\" required>\n              </div>\n\n              <div class=\"description-container\">\n                <label for=\"description\">Beskrivning:</label>\n                <textarea id=\"description\" name=\"description\" rows=\"4\" cols=\"50\" placeholder=\"Skriv en beskrivning av biblioteket h\u00E4r...\" required></textarea>\n              </div>\n\n              <div class=\"button-container\">\n                <button type=\"submit\" class=\"button\" id=\"save-button\" disabled>Spara</button>\n              </div>\n\n              <!-- Display the status \"v\u00E4ntar\" after file upload -->\n              <div id=\"upload-status\" style=\"display:none;\">\n                V\u00E4ntar p\u00E5 uppladdning...\n              </div>\n            </div>\n          </form>\n          <script>\n          // JavaScript f\u00F6r bildpreview\n            document.getElementById('image-upload').addEventListener('change', function(event) {\n              const file = event.target.files[0];\n              if (file && file.type.startsWith('image/')) {\n                const reader = new FileReader();\n                reader.onload = function(e) {\n                  document.getElementById('preview').src = e.target.result;\n                  document.getElementById('image-preview').style.display = 'block';\n                };\n                reader.readAsDataURL(file);\n              }\n            });\n          </script>\n\n          <script>\n            const fileInput = document.getElementById('file-upload');\n            const imageInput = document.getElementById('image-upload');\n            const saveButton = document.getElementById('save-button');\n            const selectedFileDiv = document.getElementById('selected-file');\n            const fileNameSpan = document.getElementById('file-name');\n            const uploadStatus = document.getElementById('upload-status');\n\n            // Initially disable the save button\n            saveButton.disabled = true;\n\n            function checkFilesSelected() {\n              if (fileInput.files.length > 0 && imageInput.files.length > 0) {\n                saveButton.disabled = false;\n              } else {\n                saveButton.disabled = true;\n              }\n            }\n\n            fileInput.addEventListener('change', function() {\n              // Check if a file is selected\n              if (fileInput.files.length > 0) {\n                // Show the selected file name\n                const selectedFileName = fileInput.files[0].name;\n                fileNameSpan.textContent = selectedFileName;\n                selectedFileDiv.style.display = 'block'; // Show the file name\n              } else {\n                selectedFileDiv.style.display = 'none'; // Hide the file name\n              }\n              checkFilesSelected();\n            });\n\n            imageInput.addEventListener('change', checkFilesSelected);\n\n            // Prevent form submission if no file is selected (only for upload form)\n            document.querySelector('form[action=\"/upload\"]').addEventListener('submit', function(event) {\n              if (fileInput.files.length === 0 || imageInput.files.length === 0) {\n                event.preventDefault(); // Prevent form submission\n                alert('Du m\u00E5ste v\u00E4lja b\u00E5de en fil och en f\u00F6rhandsvisningsbild!'); // Notify user\n              }\n            });\n          </script>\n        </div>\n        <footer>\n          <div class=\"footer-content\">\n            <p>&copy; 2025 Rita Bibliotek</p>\n            <p>\n              Kontakta oss p\u00E5\n              <a href=\"mailto:rita@trafikverket.se\">rita@trafikverket.se</a>\n              eller p\u00E5 <a href=\"https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita\" target=\"_blank\">Mattermost</a>\n              f\u00F6r fr\u00E5gor eller feedback.\n            </p>\n          </div>\n        </footer>\n      </body>\n    </html>\n    "));
     });
 });
 // Start server
