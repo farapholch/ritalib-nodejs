@@ -405,7 +405,7 @@ app.get('/admin', (_req: Request, res: Response) => {
         <link rel="stylesheet" href="/css/styles.css">
       </head>
       <body>
-        <h1>Bilioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
+        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
         <p>Klicka för att ta bort en fil eller ändra titel & beskrivning</p>
         <ul>${fileList}</ul>
       </body>
