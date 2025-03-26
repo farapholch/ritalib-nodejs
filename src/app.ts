@@ -17,7 +17,7 @@ const imagesPath = path.join(__dirname, '../images'); // Directory for images
 const publicPath = path.join(__dirname, '../public'); // Static assets like CSS
 
 // Pagination configuration
-const FILES_PER_PAGE = 5; // Set the number of files per page
+const FILES_PER_PAGE = 10; // Set the number of files per page
 
 // Ensure the files directory exists
 try {
