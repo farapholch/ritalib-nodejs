@@ -152,14 +152,6 @@ const imageStorage = multer.diskStorage({
   },
 });
 
-// Skapa en multer-instans för bilduppladdning
-const imageUpload = multer({
-  storage: imageStorage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
-  },
-}).single('image'); // En bild per uppladdning
-
 const previewDirectory = path.join('/opt/app-root/src/files', 'previews');
 let tempPreviewDirectory = previewDirectory;
 
@@ -355,15 +347,14 @@ app.get('/admin', (_req: Request, res: Response) => {
       return;
     }
 
-    const excalidrawFiles = files.filter(
-      (file) => path.extname(file) === '.excalidrawlib'
-    );
+    const excalidrawFiles = files.filter((file) => path.extname(file) === '.excalidrawlib');
 
     const fileList = excalidrawFiles
       .map((file) => {
         const baseName = file.replace(/\.excalidrawlib$/, '');
         const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
         const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
+        const previewImagePath = `/uploads/previews/${baseName}.png`;
         let description = '';
         let title = baseName;
 
@@ -380,16 +371,44 @@ app.get('/admin', (_req: Request, res: Response) => {
 
         return `
           <li class="file-item">
-            <span><strong>${title}</strong> (${file})</span>
-            <form action="/admin/edit/${file}" method="POST" style="display:inline;">
-              <input type="text" name="title" value="${title}" placeholder="Titel" required>
-              <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
-              <button type="submit" class="button">Spara ändringar</button>
-            </form>
-            <form action="/admin/remove/${file}" method="POST" style="display:inline;">
-              <button type="submit" class="button">Ta bort fil</button>
-            </form>
-          </li>
+          <span><strong>${title}</strong> (${file})</span>
+
+          <!-- Formulär för att uppdatera titel, beskrivning och bild -->
+          <form action="/admin/edit/${file}" method="POST" enctype="multipart/form-data" style="display:inline;">
+        <div>
+          <input type="text" name="title" value="${title}" placeholder="Titel" required>
+        </div>
+        <div>
+          <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
+        </div>
+        <div>
+          <!-- Här är bilduppladdningsknappen -->
+          <label for="image-upload" class="button">Välj en ny bild att ladda upp</label>
+          <input type="file" name="image" accept="image/*" id="image-upload" style="display:none;">
+        </div>
+        <div>
+          <button type="submit" class="button">Spara ändringar</button>
+        </div>
+      </form>
+
+          <!-- Formulär för att ta bort filen -->
+        <form action="/admin/remove/${file}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
+          <button type="submit" class="button">Ta bort hela bibliotek</button>
+        </form>
+        <br>
+
+          <script>
+            // JavaScript-funktion för att visa en bekräftelseprompt
+            function confirmDelete() {
+              return confirm("Är du säker på att du vill ta bort detta bibliotek? Detta kan inte ångras.");
+            }
+          </script>
+
+          <!-- Förhandsgranskning om bilden finns -->
+          ${fs.existsSync(path.join(previewDirectory, `${baseName}.png`))
+            ? `<img src="${previewImagePath}" alt="Förhandsgranskning" class="preview-image">`
+            : `<p class="no-preview">Ingen förhandsvisning tillgänglig</p>`}
+        </li>
         `;
       })
       .join('\n');
@@ -403,10 +422,14 @@ app.get('/admin', (_req: Request, res: Response) => {
         <title>Ritabibliotek Admin</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="/css/styles.css">
+        <style>
+          .preview-image { max-width: 150px; display: block; margin-top: 5px; }
+          .no-preview { color: gray; font-size: 14px; }
+        </style>
       </head>
       <body>
         <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
-        <p>Klicka för att ta bort en fil eller ändra titel & beskrivning</p>
+        <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
         <ul>${fileList}</ul>
       </body>
       </html>
@@ -414,66 +437,46 @@ app.get('/admin', (_req: Request, res: Response) => {
   });
 });
 
-app.post('/admin/edit/:filename', (req: Request, res: Response) => {
+app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Response): void => {
   const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
   const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
   const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
+  const previewImagePath = path.join(previewDirectory, `${baseName}.png`);
   const { title, description } = req.body;
+  const image = req.file;
 
-  if (!title || title.trim() === '' || !description || description.trim() === '') {
+  if (!title?.trim() || !description?.trim()) {
     res.status(400).send('Titel och beskrivning får inte vara tomma.');
     return;
   }
 
-  fs.writeFile(descriptionPath, description.trim(), (err) => {
-    if (err) {
-      console.error(`Error saving description: ${err.message}`);
-      res.status(500).send('Kunde inte spara beskrivningen.');
-      return;
-    }
+  try {
+    // Uppdatera titel och beskrivning
+    fs.writeFileSync(titlePath, title.trim());
+    const sanitizedDescription = sanitizeHtml(description, { allowedTags: [], allowedAttributes: {} });
+    fs.writeFileSync(descriptionPath, sanitizedDescription);
 
-    fs.writeFile(titlePath, title.trim(), (err) => {
-      if (err) {
-        console.error(`Error saving title: ${err.message}`);
-        res.status(500).send('Kunde inte spara titeln.');
-        return;
+    // Uppdatera bild om en ny laddas upp
+    if (image) {
+      // Radera gammal bild om den finns
+      if (fs.existsSync(previewImagePath)) {
+        fs.unlinkSync(previewImagePath);
       }
 
-      res.redirect('/admin');
-    });
-  });
-});
+      // Kopiera den uppladdade bilden till rätt plats
+      fs.copyFileSync(image.path, previewImagePath);
+      fs.unlinkSync(image.path); // Ta bort den tillfälliga uppladdade filen
+      console.log(`Bild uppdaterad: ${previewImagePath}`);
+    }
 
-
-app.post('/admin/edit/:filename', (req: Request, res: Response) => {
-  const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
-  const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
-  const titlePath = path.join(filesDirectory, `${baseName}_title.txt`);
-  const { title, description } = req.body;
-
-  if (!title || title.trim() === '' || !description || description.trim() === '') {
-    res.status(400).send('Titel och beskrivning får inte vara tomma.');
-    return;
+    return res.redirect('/admin'); // 🟢 Se till att returnera här
+  } catch (err) {
+    console.error('Fel vid uppdatering:', err);
+    res.status(500).send('Ett fel uppstod vid uppdatering av filinformationen.');
   }
-
-  fs.writeFile(descriptionPath, description.trim(), (err: any) => {
-    if (err) {
-      console.error(`Error saving description: ${err.message}`);
-      res.status(500).send('Kunde inte spara beskrivningen.');
-      return;
-    }
-
-    fs.writeFile(titlePath, title.trim(), (err: any) => {
-      if (err) {
-        console.error(`Error saving title: ${err.message}`);
-        res.status(500).send('Kunde inte spara titeln.');
-        return;
-      }
-
-      res.redirect('/admin');
-    });
-  });
 });
+
+
  
 app.post('/admin/remove/:filename', async (req: Request, res: Response) => {
   const { filename } = req.params;
