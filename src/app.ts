@@ -469,7 +469,7 @@ app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Re
       console.log(`Bild uppdaterad: ${previewImagePath}`);
     }
 
-    return res.redirect('/admin'); // 🟢 Se till att returnera här
+    return res.redirect('/admin');
   } catch (err) {
     console.error('Fel vid uppdatering:', err);
     res.status(500).send('Ett fel uppstod vid uppdatering av filinformationen.');
