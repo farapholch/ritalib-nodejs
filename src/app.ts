@@ -338,7 +338,7 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// Admin page to manage files (list and remove)
+// Admin page to manage files (list and remove)// Admin page to manage files (list and remove)
 app.get('/admin', (_req: Request, res: Response) => {
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -375,30 +375,39 @@ app.get('/admin', (_req: Request, res: Response) => {
 
           <!-- Formulär för att uppdatera titel, beskrivning och bild -->
           <form action="/admin/edit/${file}" method="POST" enctype="multipart/form-data" style="display:inline;">
-        <div>
-          <input type="text" name="title" value="${title}" placeholder="Titel" required>
-        </div>
-        <div>
-          <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
-        </div>
-        <div>
-          <!-- Här är bilduppladdningsknappen -->
-          <label for="image-upload" class="button">Välj en ny bild att ladda upp</label>
-          <input type="file" name="image" accept="image/*" id="image-upload" style="display:none;">
-        </div>
-        <div>
-          <button type="submit" class="button">Spara ändringar</button>
-        </div>
-      </form>
+            <div>
+              <input type="text" name="title" value="${title}" placeholder="Titel" required>
+            </div>
+            <div>
+              <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
+            </div>
+            <div>
+              <label for="image-upload" class="button">Välj en ny bild att ladda upp</label>
+              <input type="file" name="image" accept="image/*" id="image-upload" style="display:none;">
+            </div>
+            <div>
+              <button type="submit" class="button">Spara ändringar</button>
+            </div>
+          </form>
+
+          <!-- Formulär för att uppdatera excalidrawlib-fil -->
+          <form action="/admin/edit-excalidrawlib/${file}" method="POST" enctype="multipart/form-data" style="display:inline;">
+            <div>
+              <label for="excalidrawlib-upload-${baseName}" class="button">Uppdatera Excalidrawlib-fil</label>
+              <input type="file" name="file" accept=".excalidrawlib" id="excalidrawlib-upload-${baseName}" style="display:none;">
+            </div>
+            <div>
+              <button type="submit" class="button">Spara biblioteksfil</button>
+            </div>
+          </form>
 
           <!-- Formulär för att ta bort filen -->
-        <form action="/admin/remove/${file}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
-          <button type="submit" class="button">Ta bort hela bibliotek</button>
-        </form>
-        <br>
+          <form action="/admin/remove/${file}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
+            <button type="submit" class="button">Ta bort hela bibliotek</button>
+          </form>
+          <br>
 
           <script>
-            // JavaScript-funktion för att visa en bekräftelseprompt
             function confirmDelete() {
               return confirm("Är du säker på att du vill ta bort detta bibliotek? Detta kan inte ångras.");
             }
@@ -437,6 +446,85 @@ app.get('/admin', (_req: Request, res: Response) => {
   });
 });
 
+app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), (req: Request, res: Response) => {
+  const oldFilename = req.params.filename;
+  const oldBaseName = oldFilename.replace(/\.excalidrawlib$/, '');
+  const uploadedFile = req.file;
+
+  if (!uploadedFile) {
+    res.status(400).send('Ingen fil uppladdad.');
+    return;
+  }
+
+  const originalName = uploadedFile.originalname;
+
+  // ✅ 1. Kontrollera filändelse
+  if (!originalName.endsWith('.excalidrawlib')) {
+    fs.unlinkSync(uploadedFile.path);
+    res.status(400).send('Endast .excalidrawlib-filer tillåts.');
+    return;
+  }
+
+  // ✅ 2. Läs och validera JSON-innehållet
+  let jsonContent;
+  try {
+    const content = fs.readFileSync(uploadedFile.path, 'utf-8');
+    jsonContent = JSON.parse(content);
+
+    // Enkel validering av Excalidrawlib-struktur
+    if (!Array.isArray(jsonContent.libraryItems)) {
+      throw new Error('Ogiltig excalidrawlib-struktur.');
+    }
+  } catch (err) {
+    fs.unlinkSync(uploadedFile.path);
+    res.status(400).send('Ogiltigt JSON-innehåll i filen.');
+    return;
+  }
+
+  const newBaseName = path.basename(originalName, '.excalidrawlib');
+  const newFilePath = path.join(filesDirectory, `${newBaseName}.excalidrawlib`);
+  const oldFilePath = path.join(filesDirectory, `${oldBaseName}.excalidrawlib`);
+
+  try {
+    if (fs.existsSync(oldFilePath) && oldFilePath !== newFilePath) {
+      // Flytta Excalidraw-filen
+      fs.unlinkSync(oldFilePath);
+  
+      const oldTitlePath = path.join(filesDirectory, `${oldBaseName}_title.txt`);
+      const newTitlePath = path.join(filesDirectory, `${newBaseName}_title.txt`);
+  
+      const oldDescriptionPath = path.join(filesDirectory, `${oldBaseName}_description.txt`);
+      const newDescriptionPath = path.join(filesDirectory, `${newBaseName}_description.txt`);
+  
+      const oldPreviewPath = path.join(previewDirectory, `${oldBaseName}.png`);
+      const newPreviewPath = path.join(previewDirectory, `${newBaseName}.png`);
+  
+      // Flytta metadata om de finns
+      if (fs.existsSync(oldTitlePath)) {
+        fs.renameSync(oldTitlePath, newTitlePath);
+      }
+      if (fs.existsSync(oldDescriptionPath)) {
+        fs.renameSync(oldDescriptionPath, newDescriptionPath);
+      }
+      if (fs.existsSync(oldPreviewPath)) {
+        fs.renameSync(oldPreviewPath, newPreviewPath);
+      }
+    }
+  
+    // Spara nya Excalidraw-filen
+    fs.copyFileSync(uploadedFile.path, newFilePath);
+    fs.unlinkSync(uploadedFile.path); // Ta bort tempfil
+  
+    console.log(`✔️ Bibliotek uppdaterat: ${newFilePath}`);
+    res.redirect('/admin');
+  } catch (err) {
+    console.error('Fel vid uppdatering:', err);
+    res.status(500).send('Ett fel uppstod vid uppdatering av biblioteket.');
+  }
+  
+});
+
+
 app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Response): void => {
   const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
   const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
@@ -469,7 +557,7 @@ app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Re
       console.log(`Bild uppdaterad: ${previewImagePath}`);
     }
 
-    return res.redirect('/admin');
+    return res.redirect('/admin'); // 🟢 Se till att returnera här
   } catch (err) {
     console.error('Fel vid uppdatering:', err);
     res.status(500).send('Ett fel uppstod vid uppdatering av filinformationen.');
@@ -842,6 +930,8 @@ app.post('/admin/edit', upload.fields([
 
   const titleFilePath = path.join(filesDirectory, `${filename}_title.txt`);
   const descriptionFilePath = path.join(filesDirectory, `${filename}_description.txt`);
+  const excalidrawFilePath = path.join(filesDirectory, `${filename}.excalidrawlib`);
+  const imagePreviewPath = path.join(previewDirectory, `${filename}${image ? path.extname(image.originalname) : ''}`);
 
   try {
     // Sanitize and save the new title
@@ -857,20 +947,29 @@ app.post('/admin/edit', upload.fields([
     fs.writeFileSync(descriptionFilePath, sanitizedDescription);
     console.log(`Description saved to: ${descriptionFilePath}`);
 
-    // Handle new file upload
+    // Handle new excalidrawlib file upload
     if (file) {
-      const newFilePath = path.join(filesDirectory, `${filename}.excalidrawlib`);
-      fs.copyFileSync(file.path, newFilePath);
+      // Ensure old file is removed before saving the new one
+      if (fs.existsSync(excalidrawFilePath)) {
+        fs.unlinkSync(excalidrawFilePath);
+        console.log(`Old excalidrawlib file removed: ${excalidrawFilePath}`);
+      }
+
+      fs.copyFileSync(file.path, excalidrawFilePath);
       fs.unlinkSync(file.path);
-      console.log(`File updated: ${newFilePath}`);
+      console.log(`New excalidrawlib file saved: ${excalidrawFilePath}`);
     }
 
-    // Handle new image upload
+    // Handle new image upload (if any)
     if (image) {
-      const imagePreviewPath = path.join(previewDirectory, `${filename}${path.extname(image.originalname)}`);
+      if (fs.existsSync(imagePreviewPath)) {
+        fs.unlinkSync(imagePreviewPath);
+        console.log(`Old image removed: ${imagePreviewPath}`);
+      }
+
       fs.copyFileSync(image.path, imagePreviewPath);
       fs.unlinkSync(image.path);
-      console.log(`Image updated: ${imagePreviewPath}`);
+      console.log(`New image saved: ${imagePreviewPath}`);
     }
 
     console.log(`Updated title, description, file, and image for ${filename}`);
