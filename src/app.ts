@@ -374,32 +374,36 @@ app.get('/admin', (_req: Request, res: Response) => {
           <span><strong>${title}</strong> (${file})</span>
 
           <!-- Formulär för att uppdatera titel, beskrivning och bild -->
-          <form action="/admin/edit/${file}" method="POST" enctype="multipart/form-data" style="display:inline;">
-            <div>
-              <input type="text" name="title" value="${title}" placeholder="Titel" required>
+          <section class="card">
+          <h3>Redigera metadata</h3>
+          <form action="/admin/edit/${file}" method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="title-${baseName}">Titel</label>
+              <input type="text" id="title-${baseName}" name="title" value="${title}" required>
             </div>
-            <div>
-              <input type="text" name="description" value="${description}" placeholder="Beskrivning" required>
+            <div class="form-group">
+              <label for="description-${baseName}">Beskrivning</label>
+              <input type="text" id="description-${baseName}" name="description" value="${description}" required>
             </div>
-            <div>
-              <label for="image-upload" class="button">Välj en ny bild att ladda upp</label>
-              <input type="file" name="image" accept="image/*" id="image-upload" style="display:none;">
+            <div class="form-group">
+              <label for="image-upload-${baseName}" class="button">Välj ny bild</label>
+              <input type="file" name="image" accept="image/*" id="image-upload-${baseName}" style="display:none;">
             </div>
-            <div>
-              <button type="submit" class="button">Spara ändringar</button>
-            </div>
+            <button type="submit" class="button">Spara ändringar</button>
           </form>
+          </section>
 
-          <!-- Formulär för att uppdatera excalidrawlib-fil -->
-          <form action="/admin/edit-excalidrawlib/${file}" method="POST" enctype="multipart/form-data" style="display:inline;">
-            <div>
-              <label for="excalidrawlib-upload-${baseName}" class="button">Uppdatera Excalidrawlib-fil</label>
+          <section class="card">
+          <h3>Uppdatera Excalidraw-biblioteksfil</h3>
+          <p><strong>Du uppdaterar:</strong> ${baseName}.excalidrawlib</p>
+          <form action="/admin/edit-excalidrawlib/${file}" method="POST" enctype="multipart/form-data">
+            <div class="form-group">
+              <label for="excalidrawlib-upload-${baseName}" class="button">Välj ett nytt bibliotek</label>
               <input type="file" name="file" accept=".excalidrawlib" id="excalidrawlib-upload-${baseName}" style="display:none;">
             </div>
-            <div>
-              <button type="submit" class="button">Spara biblioteksfil</button>
-            </div>
+            <button type="submit" class="button">Spara biblioteksfil</button>
           </form>
+          </section>
 
           <!-- Formulär för att ta bort filen -->
           <form action="/admin/remove/${file}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
@@ -422,27 +426,86 @@ app.get('/admin', (_req: Request, res: Response) => {
       })
       .join('\n');
 
-    res.send(`
-      <!DOCTYPE html>
-      <html lang="sv">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Ritabibliotek Admin</title>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-        <link rel="stylesheet" href="/css/styles.css">
-        <style>
-          .preview-image { max-width: 150px; display: block; margin-top: 5px; }
-          .no-preview { color: gray; font-size: 14px; }
-        </style>
-      </head>
-      <body>
-        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
-        <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
-        <ul>${fileList}</ul>
-      </body>
-      </html>
-    `);
+      res.send(`
+        <!DOCTYPE html>
+        <html lang="sv">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Ritabibliotek Admin</title>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+          <link rel="stylesheet" href="/css/styles.css">
+          <style>
+            .preview-image { max-width: 150px; display: block; margin-top: 5px; }
+            .no-preview { color: gray; font-size: 14px; }
+      
+            .toast {
+              position: fixed;
+              top: 1rem;
+              right: 1rem;
+              background: #d4edda;
+              color: #155724;
+              padding: 1rem 1.5rem;
+              border: 1px solid #c3e6cb;
+              border-radius: 8px;
+              box-shadow: 0 0 10px rgba(0,0,0,0.1);
+              font-weight: 600;
+              z-index: 9999;
+            }
+      
+            #search {
+              padding: 0.5rem;
+              width: 300px;
+              border-radius: 6px;
+              border: 1px solid #ccc;
+              margin-bottom: 1rem;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
+          <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
+      
+          <label for="search"><strong>🔍 Sök bibliotek:</strong></label><br>
+          <input type="text" id="search" placeholder="Sök på titel eller filnamn...">
+      
+          <ul>${fileList}</ul>
+      
+          <script>
+            document.addEventListener("DOMContentLoaded", () => {
+              // Toast notifierare
+              const params = new URLSearchParams(window.location.search);
+              const updatedFile = params.get("updated");
+      
+              if (updatedFile) {
+                const toast = document.createElement("div");
+                toast.className = "toast";
+                toast.textContent = \`✔️ Filen "\${updatedFile}" har sparats.\`;
+                document.body.appendChild(toast);
+      
+                setTimeout(() => {
+                  toast.remove();
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                }, 5000);
+              }
+      
+              // 🔎 Sökfilter
+              const searchInput = document.getElementById("search");
+              searchInput.addEventListener("input", () => {
+                const query = searchInput.value.toLowerCase();
+                document.querySelectorAll(".file-item").forEach((item) => {
+                  const text = item.textContent.toLowerCase();
+                  if (query === "") {
+                    item.style.display = ""; // återställ till default
+                  } else {
+                    item.style.display = text.includes(query) ? "" : "none";
+                  }
+                });
+              });
+          </script>
+        </body>
+        </html>
+      `);
   });
 });
 
@@ -471,7 +534,6 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), (req: Req
     const content = fs.readFileSync(uploadedFile.path, 'utf-8');
     jsonContent = JSON.parse(content);
 
-    // Enkel validering av Excalidrawlib-struktur
     if (!Array.isArray(jsonContent.libraryItems)) {
       throw new Error('Ogiltig excalidrawlib-struktur.');
     }
@@ -481,25 +543,44 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), (req: Req
     return;
   }
 
-  const newBaseName = path.basename(originalName, '.excalidrawlib');
-  const newFilePath = path.join(filesDirectory, `${newBaseName}.excalidrawlib`);
+  let newBaseName = path.basename(originalName, '.excalidrawlib');
+  let newFilePath = path.join(filesDirectory, `${newBaseName}.excalidrawlib`);
   const oldFilePath = path.join(filesDirectory, `${oldBaseName}.excalidrawlib`);
+
+  let filenameChanged = false;
+
+  // ✅ 3. Om ny fil inte är samma som gamla, och krockar – hitta nytt unikt namn
+  if (oldBaseName !== newBaseName && fs.existsSync(newFilePath)) {
+    let counter = 1;
+    let candidateBaseName;
+    let candidatePath;
+
+    do {
+      candidateBaseName = `${newBaseName}(${counter})`;
+      candidatePath = path.join(filesDirectory, `${candidateBaseName}.excalidrawlib`);
+      counter++;
+    } while (fs.existsSync(candidatePath));
+
+    filenameChanged = true;
+    newBaseName = candidateBaseName;
+    newFilePath = candidatePath;
+
+    console.log(`ℹ️ Filnamn krockade. Sparar istället som: ${newBaseName}.excalidrawlib`);
+  }
 
   try {
     if (fs.existsSync(oldFilePath) && oldFilePath !== newFilePath) {
-      // Flytta Excalidraw-filen
       fs.unlinkSync(oldFilePath);
-  
+
       const oldTitlePath = path.join(filesDirectory, `${oldBaseName}_title.txt`);
       const newTitlePath = path.join(filesDirectory, `${newBaseName}_title.txt`);
-  
+
       const oldDescriptionPath = path.join(filesDirectory, `${oldBaseName}_description.txt`);
       const newDescriptionPath = path.join(filesDirectory, `${newBaseName}_description.txt`);
-  
+
       const oldPreviewPath = path.join(previewDirectory, `${oldBaseName}.png`);
       const newPreviewPath = path.join(previewDirectory, `${newBaseName}.png`);
-  
-      // Flytta metadata om de finns
+
       if (fs.existsSync(oldTitlePath)) {
         fs.renameSync(oldTitlePath, newTitlePath);
       }
@@ -510,19 +591,21 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), (req: Req
         fs.renameSync(oldPreviewPath, newPreviewPath);
       }
     }
-  
-    // Spara nya Excalidraw-filen
+
     fs.copyFileSync(uploadedFile.path, newFilePath);
-    fs.unlinkSync(uploadedFile.path); // Ta bort tempfil
-  
+    fs.unlinkSync(uploadedFile.path);
+
     console.log(`✔️ Bibliotek uppdaterat: ${newFilePath}`);
-    res.redirect('/admin');
+
+    // ✅ Redirect med nytt filnamn som query parameter
+    res.redirect(`/admin?updated=${encodeURIComponent(newBaseName)}.excalidrawlib`);
   } catch (err) {
     console.error('Fel vid uppdatering:', err);
     res.status(500).send('Ett fel uppstod vid uppdatering av biblioteket.');
   }
-  
 });
+
+
 
 
 app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Response): void => {

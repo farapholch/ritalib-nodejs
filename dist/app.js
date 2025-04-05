@@ -88,7 +88,7 @@ var filesDirectory = path_1.default.join(__dirname, '../files'); // Directory fo
 var imagesPath = path_1.default.join(__dirname, '../images'); // Directory for images
 var publicPath = path_1.default.join(__dirname, '../public'); // Static assets like CSS
 // Pagination configuration
-var FILES_PER_PAGE = 5; // Set the number of files per page
+var FILES_PER_PAGE = 10; // Set the number of files per page
 // Ensure the files directory exists
 try {
     if (!fs_1.default.existsSync(filesDirectory)) {
@@ -155,6 +155,8 @@ app.use((0, cors_1.default)(corsOptions));
 app.use(express_1.default.static(publicPath));
 app.use('/images', express_1.default.static(imagesPath));
 app.use('/files', (0, cors_1.default)(corsOptions), express_1.default.static(filesDirectory));
+app.use(express_1.default.urlencoded({ extended: true }));
+app.use(express_1.default.json());
 // Define a basic password for the /admin page
 var ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
 // Basic authentication middleware
@@ -200,13 +202,6 @@ var imageStorage = multer_1.default.diskStorage({
         cb(null, sanitizedFileName); // Skapa ett unikt filnamn för varje bild
     },
 });
-// Skapa en multer-instans för bilduppladdning
-var imageUpload = (0, multer_1.default)({
-    storage: imageStorage,
-    limits: {
-        fileSize: 5 * 1024 * 1024, // 5 MB för bildstorlek
-    },
-}).single('image'); // En bild per uppladdning
 var previewDirectory = path_1.default.join('/opt/app-root/src/files', 'previews');
 var tempPreviewDirectory = previewDirectory;
 // Ensure the preview directory exists
@@ -351,7 +346,7 @@ app.use(function (err, _req, res, next) {
         next(err);
     }
 });
-// Admin page to manage files (list and remove)
+// Admin page to manage files (list and remove)// Admin page to manage files (list and remove)
 app.get('/admin', function (_req, res) {
     fs_1.default.readdir(filesDirectory, function (err, files) {
         if (err) {
@@ -359,18 +354,133 @@ app.get('/admin', function (_req, res) {
             res.status(500).send('Error reading files.');
             return;
         }
-        // Filter out non-excalidrawlib files
         var excalidrawFiles = files.filter(function (file) { return path_1.default.extname(file) === '.excalidrawlib'; });
-        // Generate HTML list of files with remove buttons
         var fileList = excalidrawFiles
             .map(function (file) {
-            return "\n        <li class=\"file-item\">\n          <span>".concat(file, "</span>\n          <form action=\"/admin/remove/").concat(file, "\" method=\"POST\" style=\"display:inline;\">\n            <button type=\"submit\" class=\"button\">Ta bort fil</button>\n          </form>\n        </li>\n      ");
+            var baseName = file.replace(/\.excalidrawlib$/, '');
+            var descriptionPath = path_1.default.join(filesDirectory, "".concat(baseName, "_description.txt"));
+            var titlePath = path_1.default.join(filesDirectory, "".concat(baseName, "_title.txt"));
+            var previewImagePath = "/uploads/previews/".concat(baseName, ".png");
+            var description = '';
+            var title = baseName;
+            try {
+                if (fs_1.default.existsSync(descriptionPath)) {
+                    description = fs_1.default.readFileSync(descriptionPath, 'utf-8').trim();
+                }
+                if (fs_1.default.existsSync(titlePath)) {
+                    title = fs_1.default.readFileSync(titlePath, 'utf-8').trim();
+                }
+            }
+            catch (err) {
+                console.error("Error reading file metadata: ".concat(err.message));
+            }
+            return "\n          <li class=\"file-item\">\n          <span><strong>".concat(title, "</strong> (").concat(file, ")</span>\n\n          <!-- Formul\u00E4r f\u00F6r att uppdatera titel, beskrivning och bild -->\n          <form action=\"/admin/edit/").concat(file, "\" method=\"POST\" enctype=\"multipart/form-data\" style=\"display:inline;\">\n            <div>\n              <input type=\"text\" name=\"title\" value=\"").concat(title, "\" placeholder=\"Titel\" required>\n            </div>\n            <div>\n              <input type=\"text\" name=\"description\" value=\"").concat(description, "\" placeholder=\"Beskrivning\" required>\n            </div>\n            <div>\n              <label for=\"image-upload\" class=\"button\">V\u00E4lj en ny bild att ladda upp</label>\n              <input type=\"file\" name=\"image\" accept=\"image/*\" id=\"image-upload\" style=\"display:none;\">\n            </div>\n            <div>\n              <button type=\"submit\" class=\"button\">Spara \u00E4ndringar</button>\n            </div>\n          </form>\n\n          <!-- Formul\u00E4r f\u00F6r att uppdatera excalidrawlib-fil -->\n          <form action=\"/admin/edit-excalidrawlib/").concat(file, "\" method=\"POST\" enctype=\"multipart/form-data\" style=\"display:inline;\">\n            <div>\n              <label for=\"excalidrawlib-upload-").concat(baseName, "\" class=\"button\">Uppdatera Excalidrawlib-fil</label>\n              <input type=\"file\" name=\"file\" accept=\".excalidrawlib\" id=\"excalidrawlib-upload-").concat(baseName, "\" style=\"display:none;\">\n            </div>\n            <div>\n              <button type=\"submit\" class=\"button\">Spara biblioteksfil</button>\n            </div>\n          </form>\n\n          <!-- Formul\u00E4r f\u00F6r att ta bort filen -->\n          <form action=\"/admin/remove/").concat(file, "\" method=\"POST\" style=\"display:inline;\" onsubmit=\"return confirmDelete();\">\n            <button type=\"submit\" class=\"button\">Ta bort hela bibliotek</button>\n          </form>\n          <br>\n\n          <script>\n            function confirmDelete() {\n              return confirm(\"\u00C4r du s\u00E4ker p\u00E5 att du vill ta bort detta bibliotek? Detta kan inte \u00E5ngras.\");\n            }\n          </script>\n\n          <!-- F\u00F6rhandsgranskning om bilden finns -->\n          ").concat(fs_1.default.existsSync(path_1.default.join(previewDirectory, "".concat(baseName, ".png")))
+                ? "<img src=\"".concat(previewImagePath, "\" alt=\"F\u00F6rhandsgranskning\" class=\"preview-image\">")
+                : "<p class=\"no-preview\">Ingen f\u00F6rhandsvisning tillg\u00E4nglig</p>", "\n        </li>\n        ");
         })
-            .join(' ');
-        res.send("\n      <!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Ritabibliotek Admin - Hantera Filer</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">\n      </head>\n      <body>\n        <h1>Admin - Hantera filer i Rita Bibliotek :)</h1>\n        <p>Klicka f\u00F6r att ta bort en fil</p>\n        <ul>".concat(fileList, "</ul>\n      </body>\n      </html>\n    "));
+            .join('\n');
+        res.send("\n      <!DOCTYPE html>\n      <html lang=\"sv\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Ritabibliotek Admin</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">\n        <style>\n          .preview-image { max-width: 150px; display: block; margin-top: 5px; }\n          .no-preview { color: gray; font-size: 14px; }\n        </style>\n      </head>\n      <body>\n        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>\n        <p>Klicka f\u00F6r att ta bort en fil eller \u00E4ndra titel, beskrivning och bild</p>\n        <ul>".concat(fileList, "</ul>\n      </body>\n      </html>\n    "));
     });
 });
-// Remove file from the server
+app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function (req, res) {
+    var oldFilename = req.params.filename;
+    var oldBaseName = oldFilename.replace(/\.excalidrawlib$/, '');
+    var uploadedFile = req.file;
+    if (!uploadedFile) {
+        res.status(400).send('Ingen fil uppladdad.');
+        return;
+    }
+    var originalName = uploadedFile.originalname;
+    // ✅ 1. Kontrollera filändelse
+    if (!originalName.endsWith('.excalidrawlib')) {
+        fs_1.default.unlinkSync(uploadedFile.path);
+        res.status(400).send('Endast .excalidrawlib-filer tillåts.');
+        return;
+    }
+    // ✅ 2. Läs och validera JSON-innehållet
+    var jsonContent;
+    try {
+        var content = fs_1.default.readFileSync(uploadedFile.path, 'utf-8');
+        jsonContent = JSON.parse(content);
+        // Enkel validering av Excalidrawlib-struktur
+        if (!Array.isArray(jsonContent.libraryItems)) {
+            throw new Error('Ogiltig excalidrawlib-struktur.');
+        }
+    }
+    catch (err) {
+        fs_1.default.unlinkSync(uploadedFile.path);
+        res.status(400).send('Ogiltigt JSON-innehåll i filen.');
+        return;
+    }
+    var newBaseName = path_1.default.basename(originalName, '.excalidrawlib');
+    var newFilePath = path_1.default.join(filesDirectory, "".concat(newBaseName, ".excalidrawlib"));
+    var oldFilePath = path_1.default.join(filesDirectory, "".concat(oldBaseName, ".excalidrawlib"));
+    try {
+        if (fs_1.default.existsSync(oldFilePath) && oldFilePath !== newFilePath) {
+            // Flytta Excalidraw-filen
+            fs_1.default.unlinkSync(oldFilePath);
+            var oldTitlePath = path_1.default.join(filesDirectory, "".concat(oldBaseName, "_title.txt"));
+            var newTitlePath = path_1.default.join(filesDirectory, "".concat(newBaseName, "_title.txt"));
+            var oldDescriptionPath = path_1.default.join(filesDirectory, "".concat(oldBaseName, "_description.txt"));
+            var newDescriptionPath = path_1.default.join(filesDirectory, "".concat(newBaseName, "_description.txt"));
+            var oldPreviewPath = path_1.default.join(previewDirectory, "".concat(oldBaseName, ".png"));
+            var newPreviewPath = path_1.default.join(previewDirectory, "".concat(newBaseName, ".png"));
+            // Flytta metadata om de finns
+            if (fs_1.default.existsSync(oldTitlePath)) {
+                fs_1.default.renameSync(oldTitlePath, newTitlePath);
+            }
+            if (fs_1.default.existsSync(oldDescriptionPath)) {
+                fs_1.default.renameSync(oldDescriptionPath, newDescriptionPath);
+            }
+            if (fs_1.default.existsSync(oldPreviewPath)) {
+                fs_1.default.renameSync(oldPreviewPath, newPreviewPath);
+            }
+        }
+        // Spara nya Excalidraw-filen
+        fs_1.default.copyFileSync(uploadedFile.path, newFilePath);
+        fs_1.default.unlinkSync(uploadedFile.path); // Ta bort tempfil
+        console.log("\u2714\uFE0F Bibliotek uppdaterat: ".concat(newFilePath));
+        res.redirect('/admin');
+    }
+    catch (err) {
+        console.error('Fel vid uppdatering:', err);
+        res.status(500).send('Ett fel uppstod vid uppdatering av biblioteket.');
+    }
+});
+app.post('/admin/edit/:filename', upload.single('image'), function (req, res) {
+    var baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
+    var descriptionPath = path_1.default.join(filesDirectory, "".concat(baseName, "_description.txt"));
+    var titlePath = path_1.default.join(filesDirectory, "".concat(baseName, "_title.txt"));
+    var previewImagePath = path_1.default.join(previewDirectory, "".concat(baseName, ".png"));
+    var _a = req.body, title = _a.title, description = _a.description;
+    var image = req.file;
+    if (!(title === null || title === void 0 ? void 0 : title.trim()) || !(description === null || description === void 0 ? void 0 : description.trim())) {
+        res.status(400).send('Titel och beskrivning får inte vara tomma.');
+        return;
+    }
+    try {
+        // Uppdatera titel och beskrivning
+        fs_1.default.writeFileSync(titlePath, title.trim());
+        var sanitizedDescription = (0, sanitize_html_1.default)(description, { allowedTags: [], allowedAttributes: {} });
+        fs_1.default.writeFileSync(descriptionPath, sanitizedDescription);
+        // Uppdatera bild om en ny laddas upp
+        if (image) {
+            // Radera gammal bild om den finns
+            if (fs_1.default.existsSync(previewImagePath)) {
+                fs_1.default.unlinkSync(previewImagePath);
+            }
+            // Kopiera den uppladdade bilden till rätt plats
+            fs_1.default.copyFileSync(image.path, previewImagePath);
+            fs_1.default.unlinkSync(image.path); // Ta bort den tillfälliga uppladdade filen
+            console.log("Bild uppdaterad: ".concat(previewImagePath));
+        }
+        return res.redirect('/admin'); // 🟢 Se till att returnera här
+    }
+    catch (err) {
+        console.error('Fel vid uppdatering:', err);
+        res.status(500).send('Ett fel uppstod vid uppdatering av filinformationen.');
+    }
+});
 app.post('/admin/remove/:filename', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
     var filename, filePath, titleFilePath, descriptionFilePath, previewImagePath, err_1;
     return __generator(this, function (_a) {
@@ -525,6 +635,68 @@ app.get('/', function (_req, res) {
         res.send("<!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Rita Bibliotek</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">        \n        <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/images/favicon-32x32.png\" />\n        <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/images/favicon-16x16.png\" />\n      </head>\n      <body>\n        <div class=\"content\">\n          <img src=\"/images/TV_Logo_Red.png\" alt=\"Logo\">\n          <h1>Rita Bibliotek</h1>\n\n          <p>H\u00E4r \u00E4r en samling symboler som kan anv\u00E4ndas i Rita.</p>\n          <p class=\"sub\">Klicka p\u00E5 l\u00E4nkarna f\u00F6r att l\u00E4gga till</p>\n\n          <!-- Search Form -->\n          <form method=\"GET\" action=\"/\">\n            <input type=\"hidden\" name=\"token\" value=\"".concat(ritaToken, "\">\n            <input type=\"text\" name=\"search\" placeholder=\"S\u00F6k efter symboler...\" value=\"").concat(searchQuery, "\">\n            <button type=\"submit\" class=\"button\">S\u00F6k</button>\n          </form>\n\n          <ul>").concat(fileList, "</ul>\n\n          <div class=\"pagination\">\n            ").concat(paginationLinks, "\n          </div>\n\n          <!-- Line separating the upload section -->\n          <hr class=\"upload-separator\">        \n\n          <!-- Upload Form -->\n          <form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"upload-group\">\n              <div class=\"file-upload-container\">\n                <label for=\"file-upload\" class=\"custom-file-upload button\">\n                  L\u00E4gg till biblioteksfil\n                </label>\n                <input id=\"file-upload\" type=\"file\" name=\"file\" accept=\".excalidrawlib\" required>\n              </div>\n\n               <div class=\"image-upload-container\">\n              <label for=\"image-upload\" class=\"custom-file-upload button\">\n                L\u00E4gg till f\u00F6rhandsvisningsbild\n              </label>\n              <input id=\"image-upload\" type=\"file\" name=\"image\" accept=\"image/*\" required>\n              <div id=\"image-preview\" style=\"display:none;\">\n                <h3>F\u00F6rhandsgranskning av bild:</h3>\n                <img id=\"preview\" src=\"\" alt=\"Image Preview\" style=\"max-width: 300px; max-height: 300px;\">\n              </div>\n            </div>  \n\n              <div id=\"selected-file\" style=\"display:none;\">\n                <p><strong>Vald fil:</strong> <span id=\"file-name\"></span></p>\n              </div>\n\n              <div class=\"title-container\">\n                <label for=\"title\">Titel:</label>\n                <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Skriv en titel h\u00E4r...\" required>\n              </div>\n\n              <div class=\"description-container\">\n                <label for=\"description\">Beskrivning:</label>\n                <textarea id=\"description\" name=\"description\" rows=\"4\" cols=\"50\" placeholder=\"Skriv en beskrivning av biblioteket h\u00E4r...\" required></textarea>\n              </div>\n\n              <div class=\"button-container\">\n                <button type=\"submit\" class=\"button\" id=\"save-button\" disabled>Spara</button>\n              </div>\n\n              <!-- Display the status \"v\u00E4ntar\" after file upload -->\n              <div id=\"upload-status\" style=\"display:none;\">\n                V\u00E4ntar p\u00E5 uppladdning...\n              </div>\n            </div>\n          </form>\n          <script>\n          // JavaScript f\u00F6r bildpreview\n            document.getElementById('image-upload').addEventListener('change', function(event) {\n              const file = event.target.files[0];\n              if (file && file.type.startsWith('image/')) {\n                const reader = new FileReader();\n                reader.onload = function(e) {\n                  document.getElementById('preview').src = e.target.result;\n                  document.getElementById('image-preview').style.display = 'block';\n                };\n                reader.readAsDataURL(file);\n              }\n            });\n          </script>\n\n          <script>\n            const fileInput = document.getElementById('file-upload');\n            const imageInput = document.getElementById('image-upload');\n            const saveButton = document.getElementById('save-button');\n            const selectedFileDiv = document.getElementById('selected-file');\n            const fileNameSpan = document.getElementById('file-name');\n            const uploadStatus = document.getElementById('upload-status');\n\n            // Initially disable the save button\n            saveButton.disabled = true;\n\n            function checkFilesSelected() {\n              if (fileInput.files.length > 0 && imageInput.files.length > 0) {\n                saveButton.disabled = false;\n              } else {\n                saveButton.disabled = true;\n              }\n            }\n\n            fileInput.addEventListener('change', function() {\n              // Check if a file is selected\n              if (fileInput.files.length > 0) {\n                // Show the selected file name\n                const selectedFileName = fileInput.files[0].name;\n                fileNameSpan.textContent = selectedFileName;\n                selectedFileDiv.style.display = 'block'; // Show the file name\n              } else {\n                selectedFileDiv.style.display = 'none'; // Hide the file name\n              }\n              checkFilesSelected();\n            });\n\n            imageInput.addEventListener('change', checkFilesSelected);\n\n            // Prevent form submission if no file is selected (only for upload form)\n            document.querySelector('form[action=\"/upload\"]').addEventListener('submit', function(event) {\n              if (fileInput.files.length === 0 || imageInput.files.length === 0) {\n                event.preventDefault(); // Prevent form submission\n                alert('Du m\u00E5ste v\u00E4lja b\u00E5de en fil och en f\u00F6rhandsvisningsbild!'); // Notify user\n              }\n            });\n          </script>\n        </div>\n        <footer>\n          <div class=\"footer-content\">\n            <p>&copy; 2025 Rita Bibliotek</p>\n            <p>\n              Kontakta oss p\u00E5\n              <a href=\"mailto:rita@trafikverket.se\">rita@trafikverket.se</a>\n              eller p\u00E5 <a href=\"https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita\" target=\"_blank\">Mattermost</a>\n              f\u00F6r fr\u00E5gor eller feedback.\n            </p>\n          </div>\n        </footer>\n      </body>\n    </html>\n    "));
     });
 });
+app.post('/admin/edit', upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'image', maxCount: 1 }
+]), function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, filename, title, description, files, file, image, titleFilePath, descriptionFilePath, excalidrawFilePath, imagePreviewPath, sanitizedTitle, sanitizedDescription;
+    return __generator(this, function (_b) {
+        _a = req.body, filename = _a.filename, title = _a.title, description = _a.description;
+        files = req.files;
+        file = (files === null || files === void 0 ? void 0 : files.file) ? files.file[0] : null;
+        image = (files === null || files === void 0 ? void 0 : files.image) ? files.image[0] : null;
+        // Log the received data
+        console.log("Received edit request for filename: ".concat(filename, ", title: ").concat(title, ", description: ").concat(description));
+        if (!filename || !title || !description) {
+            console.error('Missing required fields: filename, title, or description');
+            res.status(400).send('Missing required fields: filename, title, or description');
+            return [2 /*return*/];
+        }
+        titleFilePath = path_1.default.join(filesDirectory, "".concat(filename, "_title.txt"));
+        descriptionFilePath = path_1.default.join(filesDirectory, "".concat(filename, "_description.txt"));
+        excalidrawFilePath = path_1.default.join(filesDirectory, "".concat(filename, ".excalidrawlib"));
+        imagePreviewPath = path_1.default.join(previewDirectory, "".concat(filename).concat(image ? path_1.default.extname(image.originalname) : ''));
+        try {
+            sanitizedTitle = sanitizeText(title, 30);
+            fs_1.default.writeFileSync(titleFilePath, sanitizedTitle);
+            console.log("Title saved to: ".concat(titleFilePath));
+            sanitizedDescription = (0, sanitize_html_1.default)(description, {
+                allowedTags: [],
+                allowedAttributes: {},
+            });
+            fs_1.default.writeFileSync(descriptionFilePath, sanitizedDescription);
+            console.log("Description saved to: ".concat(descriptionFilePath));
+            // Handle new excalidrawlib file upload
+            if (file) {
+                // Ensure old file is removed before saving the new one
+                if (fs_1.default.existsSync(excalidrawFilePath)) {
+                    fs_1.default.unlinkSync(excalidrawFilePath);
+                    console.log("Old excalidrawlib file removed: ".concat(excalidrawFilePath));
+                }
+                fs_1.default.copyFileSync(file.path, excalidrawFilePath);
+                fs_1.default.unlinkSync(file.path);
+                console.log("New excalidrawlib file saved: ".concat(excalidrawFilePath));
+            }
+            // Handle new image upload (if any)
+            if (image) {
+                if (fs_1.default.existsSync(imagePreviewPath)) {
+                    fs_1.default.unlinkSync(imagePreviewPath);
+                    console.log("Old image removed: ".concat(imagePreviewPath));
+                }
+                fs_1.default.copyFileSync(image.path, imagePreviewPath);
+                fs_1.default.unlinkSync(image.path);
+                console.log("New image saved: ".concat(imagePreviewPath));
+            }
+            console.log("Updated title, description, file, and image for ".concat(filename));
+            res.redirect('/admin');
+        }
+        catch (err) {
+            console.error('Error updating file information:', err);
+            res.status(500).send('Error updating file information.');
+        }
+        return [2 /*return*/];
+    });
+}); });
 // Start server
 app.listen(PORT, function () {
     console.log("RitaBibliotek startar...");
