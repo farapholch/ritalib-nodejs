@@ -93,7 +93,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Define a basic password for the /admin page
-const ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
+const ADMIN_PASSWORD = process.env.ADMINPWD || 'admin';
 
 // Basic authentication middleware
 app.use(
@@ -812,10 +812,17 @@ app.get('/', (_req: Request, res: Response) => {
           `${baseLibraryUrl}/files/${file}`
         )}&token=${ritaToken}`;
 
-        // Check if a preview image exists
-        const previewImagePath = path.join(previewDirectory, `${fileNameWithoutExt}.png`);
-        const previewImageUrl = fs.existsSync(previewImagePath) ? `/uploads/previews/${fileNameWithoutExt}.png` : '';
+        const possibleExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+        let previewImageUrl = '';
 
+        for (const ext of possibleExtensions) {
+          const previewImagePath = path.join(tempPreviewDirectory, `${fileNameWithoutExt}${ext}`);
+          if (fs.existsSync(previewImagePath)) {
+            previewImageUrl = `/uploads/previews/${fileNameWithoutExt}${ext}`;
+            break;
+          }
+        }
+        
         return ` 
         <li class="file-item">
           <div class="file-icon">📄</div>
