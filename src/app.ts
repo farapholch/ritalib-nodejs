@@ -337,8 +337,6 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     next(err);
   }
 });
-
-// Admin page to manage files (list and remove)// Admin page to manage files (list and remove)
 app.get('/admin', (_req: Request, res: Response) => {
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -369,25 +367,35 @@ app.get('/admin', (_req: Request, res: Response) => {
           console.error(`Error reading file metadata: ${err.message}`);
         }
 
-        return `
-          <li class="file-item">
-          <span><strong>${title}</strong> (${file})</span>
+        return {
+          fileName: file,
+          title,
+          description,
+          previewImagePath,
+          baseName
+        };
+      });
+
+    const fileListHTML = fileList
+      .map((file) => `
+        <li class="file-item" data-title="${file.title.toLowerCase()}" data-description="${file.description.toLowerCase()}" data-filename="${file.fileName.toLowerCase()}">
+          <span><strong>${file.title}</strong> (${file.fileName})</span>
 
           <!-- Formulär för att uppdatera titel, beskrivning och bild -->
           <section class="card">
           <h3>Redigera metadata</h3>
-          <form action="/admin/edit/${file}" method="POST" enctype="multipart/form-data">
+          <form action="/admin/edit/${file.fileName}" method="POST" enctype="multipart/form-data">
             <div class="form-group">
-              <label for="title-${baseName}">Titel</label>
-              <input type="text" id="title-${baseName}" name="title" value="${title}" required>
+              <label for="title-${file.baseName}">Titel</label>
+              <input type="text" id="title-${file.baseName}" name="title" value="${file.title}" required>
             </div>
             <div class="form-group">
-              <label for="description-${baseName}">Beskrivning</label>
-              <input type="text" id="description-${baseName}" name="description" value="${description}" required>
+              <label for="description-${file.baseName}">Beskrivning</label>
+              <input type="text" id="description-${file.baseName}" name="description" value="${file.description}" required>
             </div>
             <div class="form-group">
-              <label for="image-upload-${baseName}" class="button">Välj ny bild</label>
-              <input type="file" name="image" accept="image/*" id="image-upload-${baseName}" style="display:none;">
+              <label for="image-upload-${file.baseName}" class="button">Välj ny bild</label>
+              <input type="file" name="image" accept="image/*" id="image-upload-${file.baseName}" style="display:none;">
             </div>
             <button type="submit" class="button">Spara ändringar</button>
           </form>
@@ -395,18 +403,18 @@ app.get('/admin', (_req: Request, res: Response) => {
 
           <section class="card">
           <h3>Uppdatera Excalidraw-biblioteksfil</h3>
-          <p><strong>Du uppdaterar:</strong> ${baseName}.excalidrawlib</p>
-          <form action="/admin/edit-excalidrawlib/${file}" method="POST" enctype="multipart/form-data">
+          <p><strong>Du uppdaterar:</strong> ${file.baseName}.excalidrawlib</p>
+          <form action="/admin/edit-excalidrawlib/${file.fileName}" method="POST" enctype="multipart/form-data">
             <div class="form-group">
-              <label for="excalidrawlib-upload-${baseName}" class="button">Välj ett nytt bibliotek</label>
-              <input type="file" name="file" accept=".excalidrawlib" id="excalidrawlib-upload-${baseName}" style="display:none;">
+              <label for="excalidrawlib-upload-${file.baseName}" class="button">Välj ett nytt bibliotek</label>
+              <input type="file" name="file" accept=".excalidrawlib" id="excalidrawlib-upload-${file.baseName}" style="display:none;">
             </div>
             <button type="submit" class="button">Spara biblioteksfil</button>
           </form>
           </section>
 
           <!-- Formulär för att ta bort filen -->
-          <form action="/admin/remove/${file}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
+          <form action="/admin/remove/${file.fileName}" method="POST" style="display:inline;" onsubmit="return confirmDelete();">
             <button type="submit" class="button">Ta bort hela bibliotek</button>
           </form>
           <br>
@@ -418,94 +426,93 @@ app.get('/admin', (_req: Request, res: Response) => {
           </script>
 
           <!-- Förhandsgranskning om bilden finns -->
-          ${fs.existsSync(path.join(previewDirectory, `${baseName}.png`))
-            ? `<img src="${previewImagePath}" alt="Förhandsgranskning" class="preview-image">`
+          ${fs.existsSync(path.join(previewDirectory, `${file.baseName}.png`))
+            ? `<img src="${file.previewImagePath}" alt="Förhandsgranskning" class="preview-image">`
             : `<p class="no-preview">Ingen förhandsvisning tillgänglig</p>`}
         </li>
-        `;
-      })
-      .join('\n');
+      `).join('\n');
 
-      res.send(`
-        <!DOCTYPE html>
-        <html lang="sv">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Ritabibliotek Admin</title>
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-          <link rel="stylesheet" href="/css/styles.css">
-          <style>
-            .preview-image { max-width: 150px; display: block; margin-top: 5px; }
-            .no-preview { color: gray; font-size: 14px; }
-      
-            .toast {
-              position: fixed;
-              top: 1rem;
-              right: 1rem;
-              background: #d4edda;
-              color: #155724;
-              padding: 1rem 1.5rem;
-              border: 1px solid #c3e6cb;
-              border-radius: 8px;
-              box-shadow: 0 0 10px rgba(0,0,0,0.1);
-              font-weight: 600;
-              z-index: 9999;
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="sv">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Ritabibliotek Admin</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="/css/styles.css">
+        <style>
+          .preview-image { max-width: 150px; display: block; margin-top: 5px; }
+          .no-preview { color: gray; font-size: 14px; }
+          .toast {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: #d4edda;
+            color: #155724;
+            padding: 1rem 1.5rem;
+            border: 1px solid #c3e6cb;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            font-weight: 600;
+            z-index: 9999;
+          }
+          #search {
+            padding: 0.5rem;
+            width: 300px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            margin-bottom: 1rem;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
+        <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
+
+        <label for="search"><strong>🔍 Sök bibliotek:</strong></label><br>
+        <input type="text" id="search" placeholder="Sök på titel eller filnamn...">
+
+        <ul>${fileListHTML}</ul>
+
+        <script>
+          document.addEventListener("DOMContentLoaded", () => {
+            // Toast notifierare
+            const params = new URLSearchParams(window.location.search);
+            const updatedFile = params.get("updated");
+
+            if (updatedFile) {
+              const toast = document.createElement("div");
+              toast.className = "toast";
+              toast.textContent = \`✔️ Filen "\${updatedFile}" har sparats.\`;
+              document.body.appendChild(toast);
+
+              setTimeout(() => {
+                toast.remove();
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }, 5000);
             }
-      
-            #search {
-              padding: 0.5rem;
-              width: 300px;
-              border-radius: 6px;
-              border: 1px solid #ccc;
-              margin-bottom: 1rem;
-            }
-          </style>
-        </head>
-        <body>
-          <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
-          <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
-      
-          <label for="search"><strong>🔍 Sök bibliotek:</strong></label><br>
-          <input type="text" id="search" placeholder="Sök på titel eller filnamn...">
-      
-          <ul>${fileList}</ul>
-      
-          <script>
-            document.addEventListener("DOMContentLoaded", () => {
-              // Toast notifierare
-              const params = new URLSearchParams(window.location.search);
-              const updatedFile = params.get("updated");
-      
-              if (updatedFile) {
-                const toast = document.createElement("div");
-                toast.className = "toast";
-                toast.textContent = \`✔️ Filen "\${updatedFile}" har sparats.\`;
-                document.body.appendChild(toast);
-      
-                setTimeout(() => {
-                  toast.remove();
-                  window.history.replaceState({}, document.title, window.location.pathname);
-                }, 5000);
-              }
-      
-              // 🔎 Sökfilter
-              const searchInput = document.getElementById("search");
-              searchInput.addEventListener("input", () => {
-                const query = searchInput.value.toLowerCase();
-                document.querySelectorAll(".file-item").forEach((item) => {
-                  const text = item.textContent.toLowerCase();
-                  if (query === "") {
-                    item.style.display = ""; // återställ till default
-                  } else {
-                    item.style.display = text.includes(query) ? "" : "none";
-                  }
-                });
+
+            // 🔎 Sökfilter
+            const searchInput = document.getElementById("search");
+            searchInput.addEventListener("input", () => {
+              const query = searchInput.value.toLowerCase();
+              document.querySelectorAll(".file-item").forEach((item) => {
+                const title = item.getAttribute('data-title') || '';
+                const description = item.getAttribute('data-description') || '';
+                const fileName = item.getAttribute('data-filename') || '';
+                if (title.includes(query) || description.includes(query) || fileName.includes(query)) {
+                  item.style.display = "";
+                } else {
+                  item.style.display = "none";
+                }
               });
-          </script>
-        </body>
-        </html>
-      `);
+            });
+          });
+        </script>
+      </body>
+      </html>
+    `);
   });
 });
 
