@@ -395,10 +395,6 @@ footer a:hover {
   border-radius: 8px;
 }
 
-.button:hover {
-  background-color: #4338ca;
-}
-
 .divider {
   text-align: center;
   margin: 2rem 0;
@@ -423,4 +419,24 @@ footer a:hover {
 
 .divider::after {
   right: 0;
+}
+
+.file-downloads {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: #333;
+  margin-top: 10px;
+}
+
+.download-icon {
+  width: 18px;  /* Mindre storlek */
+  height: 18px; /* Mindre storlek */
+  margin-right: 5px;
+}
+
+.download-count {
+  font-size: 14px;
+  font-weight: bold;
+  color: #333;
 }

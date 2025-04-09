@@ -75,6 +75,31 @@ const validateFileContent = (filePath: string): boolean => {
   }
 };
 
+const downloadCountsFile = path.join(__dirname, 'downloadCounts.json');
+
+const loadDownloadCounts = (): Record<string, number> => {
+  try {
+    if (fs.existsSync(downloadCountsFile)) {
+      const data = fs.readFileSync(downloadCountsFile, 'utf-8');
+      return JSON.parse(data);
+    } else {
+      return {}; // Om filen inte finns, returnera ett tomt objekt
+    }
+  } catch (error) {
+    console.error('Error loading download counts:', error);
+    return {}; // Återvänd med ett tomt objekt vid fel
+  }
+};
+
+const saveDownloadCounts = (downloadCounts: Record<string, number>): void => {
+  try {
+    const data = JSON.stringify(downloadCounts, null, 2);
+    fs.writeFileSync(downloadCountsFile, data, 'utf-8');
+  } catch (error) {
+    console.error('Error saving download counts:', error);
+  }
+};
+
 // Allow all origins
 const corsOptions = {
   origin: '*',
@@ -612,9 +637,6 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), (req: Req
   }
 });
 
-
-
-
 app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Response): void => {
   const baseName = req.params.filename.replace(/\.excalidrawlib$/, '');
   const descriptionPath = path.join(filesDirectory, `${baseName}_description.txt`);
@@ -654,6 +676,20 @@ app.post('/admin/edit/:filename', upload.single('image'), (req: Request, res: Re
   }
 });
 
+app.post('/api/track-click', (req: Request, res: Response): void => {
+  const { fileName } = req.body;
+
+  if (!fileName) {
+    res.status(400).send('Missing fileName');
+    return; // Skicka ett svar men utan att returnera något
+  }
+
+  const downloadCounts = loadDownloadCounts();
+  downloadCounts[fileName] = (downloadCounts[fileName] || 0) + 1;
+  saveDownloadCounts(downloadCounts);
+
+  res.status(200).send('Click tracked'); // Skicka ett svar utan att returnera något
+});
 
  
 app.post('/admin/remove/:filename', async (req: Request, res: Response) => {
@@ -716,11 +752,12 @@ app.get(
 
 // Route to list files with pagination and search
 app.get('/', (_req: Request, res: Response) => {
-  // Get the current page and search query from query parameters
   const currentPage = parseInt(_req.query.page as string, 10) || 1;
   const searchQuery = (_req.query.search as string)?.trim().toLowerCase() || '';
   const startIndex = (currentPage - 1) * FILES_PER_PAGE;
   const ritaToken = (_req.query.token as string)?.trim() || '';
+
+  const downloadCounts = loadDownloadCounts(); // 🆕 Ladda nedladdningsdata
 
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -729,122 +766,92 @@ app.get('/', (_req: Request, res: Response) => {
       return;
     }
 
-    // Filter out non-excalidrawlib files and list only .excalidrawlib files
     const excalidrawFiles = files.filter(
       (file) => path.extname(file) === '.excalidrawlib'
     );
 
-    // If a search query exists, filter files based on the search in both title and description
     const filteredFiles = excalidrawFiles.filter((file) => {
       const fileNameWithoutExt = path.parse(file).name;
+      const titleFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_title.txt`);
+      const descriptionFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_description.txt`);
 
-      // Paths for title and description files
-      const titleFilePath = path.join(
-        filesDirectory,
-        `${fileNameWithoutExt}_title.txt`
-      );
-      const descriptionFilePath = path.join(
-        filesDirectory,
-        `${fileNameWithoutExt}_description.txt`
-      );
-
-      // Check if the title file exists and is not empty
       if (fs.existsSync(titleFilePath)) {
         const title = fs.readFileSync(titleFilePath, 'utf-8').trim();
-
-        if (!title) {
-          return false; // Skip files with an empty title
-        }
+        if (!title) return false;
       } else {
-        return false; // Skip files without a title file
+        return false;
       }
 
-      // Read the description, if it exists
       const description = fs.existsSync(descriptionFilePath)
         ? fs.readFileSync(descriptionFilePath, 'utf-8').trim()
         : 'No description available';
 
-      // Check if either title or description matches the search query
       return (
         fileNameWithoutExt.includes(searchQuery) ||
         description.toLowerCase().includes(searchQuery)
       );
     });
 
-    // Get only the files for the current page
-    const paginatedFiles = filteredFiles.slice(
-      startIndex,
-      startIndex + FILES_PER_PAGE
-    );
+    const paginatedFiles = filteredFiles.slice(startIndex, startIndex + FILES_PER_PAGE);
 
-    const fileList = paginatedFiles
-      .map((file) => {
-        const fileNameWithoutExt = path.parse(file).name;
-        const titleFilePath = path.join(
-          filesDirectory,
-          `${fileNameWithoutExt}_title.txt`
-        );
-        const descriptionFilePath = path.join(
-          filesDirectory,
-          `${fileNameWithoutExt}_description.txt`
-        );
+    const fileList = paginatedFiles.map((file) => {
+      const fileNameWithoutExt = path.parse(file).name;
+      const titleFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_title.txt`);
+      const descriptionFilePath = path.join(filesDirectory, `${fileNameWithoutExt}_description.txt`);
 
-        let title = 'Untitled'; // Default title when no title is found
-        let description = 'No description available'; // Default description when no description is found
+      let title = 'Untitled';
+      let description = 'No description available';
 
-        // Read title file and update title if it exists and is non-empty
-        if (fs.existsSync(titleFilePath)) {
-          const titleFromFile = fs.readFileSync(titleFilePath, 'utf-8').trim();
-          if (titleFromFile) {
-            title = titleFromFile;
-          }
+      if (fs.existsSync(titleFilePath)) {
+        const titleFromFile = fs.readFileSync(titleFilePath, 'utf-8').trim();
+        if (titleFromFile) title = titleFromFile;
+      }
+
+      if (fs.existsSync(descriptionFilePath)) {
+        const descriptionFromFile = fs.readFileSync(descriptionFilePath, 'utf-8').trim();
+        if (descriptionFromFile) description = descriptionFromFile;
+      }
+
+      const baseLibraryUrl = process.env.BASE_LIBRARY_URL;
+      const baseApp = process.env.BASE_APP;
+
+      const excalidrawLink = `https://${baseApp}#addLibrary=${encodeURIComponent(
+        `${baseLibraryUrl}/files/${file}`
+      )}&token=${ritaToken}`;
+
+      const possibleExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+      let previewImageUrl = '';
+
+      for (const ext of possibleExtensions) {
+        const previewImagePath = path.join(tempPreviewDirectory, `${fileNameWithoutExt}${ext}`);
+        if (fs.existsSync(previewImagePath)) {
+          previewImageUrl = `/uploads/previews/${fileNameWithoutExt}${ext}`;
+          break;
         }
+      }
 
-        // Read description file and update description if it exists and is non-empty
-        if (fs.existsSync(descriptionFilePath)) {
-          const descriptionFromFile = fs
-            .readFileSync(descriptionFilePath, 'utf-8')
-            .trim();
-          if (descriptionFromFile) {
-            description = descriptionFromFile;
-          }
-        }
+      const downloadCount = downloadCounts[file] || 0; // 🆕 Läs antal nedladdningar
 
-        const baseLibraryUrl = process.env.BASE_LIBRARY_URL;
-        const baseApp = process.env.BASE_APP;
-
-        // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
-        // const baseApp = 'rita-utv.sp.trafikverket.se';
-        const excalidrawLink = `https://${baseApp}#addLibrary=${encodeURIComponent(
-          `${baseLibraryUrl}/files/${file}`
-        )}&token=${ritaToken}`;
-
-        const possibleExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-        let previewImageUrl = '';
-
-        for (const ext of possibleExtensions) {
-          const previewImagePath = path.join(tempPreviewDirectory, `${fileNameWithoutExt}${ext}`);
-          if (fs.existsSync(previewImagePath)) {
-            previewImageUrl = `/uploads/previews/${fileNameWithoutExt}${ext}`;
-            break;
-          }
-        }
-        
-        return ` 
+      return `
         <li class="file-item">
           <div class="file-icon">📄</div>
           <div class="file-info">
             <strong class="file-title">${title}</strong>
-            <p class="file-description">${description}</p>
-            ${previewImageUrl ? `<img src="${previewImageUrl}" alt="Preview Image" class="preview-image">` : ''}
-            <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
+            <p class="file-downloads">
+            <svg class="download-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" title="Antal nedladdningar">
+              <circle cx="12" cy="12" r="10" fill="#9D0000" />
+              <path d="M12 16V6M12 16l4-4M12 16l-4-4" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
+            </svg>
+            <span class="download-count" title="Antal nedladdningar">${downloadCount}</span>
+            </p>
+            <p class="file-description">${description}</p>            
+            ${previewImageUrl ? `<img src="${previewImageUrl}" alt="Preview Image" class="preview-image">` : ''}                        
+            <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="handleClickAndTrack(event, '${file}', '${excalidrawLink}')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
           </div>
         </li>
       `;
-      })
-      .join(' ');
+    }).join(' ');
 
-    // Generate pagination links
     const totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
     const paginationLinks = Array.from({ length: totalPages }, (_, index) => {
       const pageNumber = index + 1;
@@ -987,6 +994,39 @@ app.get('/', (_req: Request, res: Response) => {
                 alert('Du måste välja både en fil och en förhandsvisningsbild!'); // Notify user
               }
             });
+          </script>
+          <script>
+          function trackClick(fileName) {
+            fetch('/api/track-click', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ fileName }),
+            })
+            .then(response => {
+              if (!response.ok) {
+                console.error('Failed to track click');
+              } else {
+                console.log('Click tracked successfully');
+              }
+            })
+            .catch(error => {
+              console.error('Error:', error);
+            });
+          }
+          </script>
+          <script>
+          function handleClickAndTrack(event, fileName, excalidrawLink) {
+            // Förhindra att länken följer standardbeteendet (dvs. navigera direkt)
+            event.preventDefault();
+
+            // Spåra klicket
+            trackClick(fileName);
+
+            // Öppna länken manuellt i ett nytt fönster
+            window.open(excalidrawLink, '_excalidraw');
+          }
           </script>
         </div>
         <footer>
