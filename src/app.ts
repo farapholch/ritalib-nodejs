@@ -753,6 +753,7 @@ app.get(
 app.get('/', (_req: Request, res: Response) => {
   const currentPage = parseInt(_req.query.page as string, 10) || 1;
   const searchQuery = (_req.query.search as string)?.trim().toLowerCase() || '';
+  const sortOption = (_req.query.sort as string)?.trim().toLowerCase() || '';
   const startIndex = (currentPage - 1) * FILES_PER_PAGE;
   const ritaToken = (_req.query.token as string)?.trim() || '';
 
@@ -791,6 +792,13 @@ app.get('/', (_req: Request, res: Response) => {
       );
     });
 
+     if (sortOption === 'popular') {
+      filteredFiles.sort((a, b) => {
+        const countA = downloadCounts[a] || 0;
+        const countB = downloadCounts[b] || 0;
+        return countB - countA;
+      });
+    }
     const paginatedFiles = filteredFiles.slice(startIndex, startIndex + FILES_PER_PAGE);
 
     const fileList = paginatedFiles.map((file) => {
@@ -856,7 +864,7 @@ app.get('/', (_req: Request, res: Response) => {
     const totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
     const paginationLinks = Array.from({ length: totalPages }, (_, index) => {
       const pageNumber = index + 1;
-      return `<a href="/?page=${pageNumber}&search=${searchQuery}&token=${ritaToken}" class="page-link">${pageNumber}</a>`;
+      return `<a href="/?page=${pageNumber}&search=${searchQuery}&sort=${sortOption}&token=${ritaToken}" class="page-link">${pageNumber}</a>`;
     }).join(' ');
 
     res.send(`<!DOCTYPE html>
@@ -879,9 +887,15 @@ app.get('/', (_req: Request, res: Response) => {
           <p class="sub">Klicka på lägg till knappen för att importera i Rita</p>
 
           <!-- Search Form -->
-          <form method="GET" action="/">
+          <form method="GET" action="/" class="search-sort-form">
             <input type="hidden" name="token" value="${ritaToken}">
             <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">
+          
+            <!-- Sorteringsmeny -->
+            <select name="sort" class="sort-dropdown">
+              <option value="popular" ${_req.query.sort === 'popular' ? 'selected' : ''}>Mest populära</option>
+            </select>
+          
             <button type="submit" class="button">Sök</button>
           </form>
 
