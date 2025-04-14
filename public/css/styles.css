@@ -421,6 +421,10 @@ footer a:hover {
   right: 0;
 }
 
+.file-item {
+  position: relative; /* Lägg till position här för att toolboxen kan placeras rätt */
+}
+
 .file-downloads {
   display: inline-flex;
   align-items: center;
