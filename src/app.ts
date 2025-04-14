@@ -792,13 +792,27 @@ app.get('/', (_req: Request, res: Response) => {
       );
     });
 
-     if (sortOption === 'popular') {
+    if (sortOption === 'popular') {
       filteredFiles.sort((a, b) => {
         const countA = downloadCounts[a] || 0;
         const countB = downloadCounts[b] || 0;
         return countB - countA;
       });
+    } else if (sortOption === 'reverse') {
+      filteredFiles.sort((a, b) => {
+        const titleA = path.parse(a).name.toLowerCase();
+        const titleB = path.parse(b).name.toLowerCase();
+        return titleB.localeCompare(titleA);
+      });
+    } else {
+      // Default A–Ö
+      filteredFiles.sort((a, b) => {
+        const titleA = path.parse(a).name.toLowerCase();
+        const titleB = path.parse(b).name.toLowerCase();
+        return titleA.localeCompare(titleB);
+      });
     }
+    
     const paginatedFiles = filteredFiles.slice(startIndex, startIndex + FILES_PER_PAGE);
 
     const fileList = paginatedFiles.map((file) => {
@@ -889,11 +903,12 @@ app.get('/', (_req: Request, res: Response) => {
           <!-- Search Form -->
           <form method="GET" action="/" class="search-sort-form">
             <input type="hidden" name="token" value="${ritaToken}">
-            <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">
-          
-            <!-- Sorteringsmeny -->
+            <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">                      
+
             <select name="sort" class="sort-dropdown">
-              <option value="popular" ${_req.query.sort === 'popular' ? 'selected' : ''}>Mest populära</option>
+              <option value="" ${!_req.query.sort ? 'selected' : ''}>📁 Sortera på: Namn A–Ö</option>
+              <option value="reverse" ${_req.query.sort === 'reverse' ? 'selected' : ''}>📁 Sortera på: Namn Ö–A</option>
+              <option value="popular" ${_req.query.sort === 'popular' ? 'selected' : ''}>⭐ Sortera på: Mest populära</option>
             </select>
           
             <button type="submit" class="button">Sök</button>
