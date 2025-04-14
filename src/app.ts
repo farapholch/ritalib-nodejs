@@ -905,7 +905,7 @@ app.get('/', (_req: Request, res: Response) => {
             <input type="hidden" name="token" value="${ritaToken}">
             <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">                      
 
-            <select name="sort" class="sort-dropdown">
+            <select name="sort" id="sortSelect" class="sort-dropdown">
               <option value="" ${!_req.query.sort ? 'selected' : ''}>📁 Sortera på: Namn A–Ö</option>
               <option value="reverse" ${_req.query.sort === 'reverse' ? 'selected' : ''}>📁 Sortera på: Namn Ö–A</option>
               <option value="popular" ${_req.query.sort === 'popular' ? 'selected' : ''}>⭐ Sortera på: Mest populära</option>
@@ -980,6 +980,12 @@ app.get('/', (_req: Request, res: Response) => {
                 };
                 reader.readAsDataURL(file);
               }
+            });
+          </script>
+
+          <script>
+            document.getElementById('sortSelect').addEventListener('change', function () {
+              this.form.submit(); // submit parent form direkt när man byter sortering
             });
           </script>
 
