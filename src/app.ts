@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 3000;
 const filesDirectory = path.join(__dirname, '../files'); // Directory for stored files
 const imagesPath = path.join(__dirname, '../images'); // Directory for images
 const publicPath = path.join(__dirname, '../public'); // Static assets like CSS
+const downloadCountsFile = path.join('/opt/app-root/src/files', 'downloadCounts.json');
 
 // Pagination configuration
 const FILES_PER_PAGE = 10; // Set the number of files per page
@@ -74,8 +75,6 @@ const validateFileContent = (filePath: string): boolean => {
     return false;
   }
 };
-
-const downloadCountsFile = path.join(__dirname, 'downloadCounts.json');
 
 const loadDownloadCounts = (): Record<string, number> => {
   try {
@@ -492,7 +491,7 @@ app.get('/admin', (_req: Request, res: Response) => {
         </style>
       </head>
       <body>
-        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>
+        <h1>Biblioteksadmin - Hantera filer i Rita - TRV bibliotek :)</h1>
         <p>Klicka för att ta bort en fil eller ändra titel, beskrivning och bild</p>
 
         <label for="search"><strong>🔍 Sök bibliotek:</strong></label><br>
@@ -757,7 +756,7 @@ app.get('/', (_req: Request, res: Response) => {
   const startIndex = (currentPage - 1) * FILES_PER_PAGE;
   const ritaToken = (_req.query.token as string)?.trim() || '';
 
-  const downloadCounts = loadDownloadCounts(); // 🆕 Ladda nedladdningsdata
+  const downloadCounts = loadDownloadCounts();
 
   fs.readdir(filesDirectory, (err, files) => {
     if (err) {
@@ -832,21 +831,23 @@ app.get('/', (_req: Request, res: Response) => {
 
       const downloadCount = downloadCounts[file] || 0; // 🆕 Läs antal nedladdningar
 
-      return `
+     return `
         <li class="file-item">
           <div class="file-icon">📄</div>
           <div class="file-info">
-            <strong class="file-title">${title}</strong>
-            <p class="file-downloads">
-            <svg class="download-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" title="Antal nedladdningar">
-              <circle cx="12" cy="12" r="10" fill="#9D0000" />
-              <path d="M12 16V6M12 16l4-4M12 16l-4-4" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/>
-            </svg>
-            <span class="download-count" title="Antal nedladdningar">${downloadCount}</span>
-            </p>
+            <strong class="file-title">${title}</strong>            
             <p class="file-description">${description}</p>            
-            ${previewImageUrl ? `<img src="${previewImageUrl}" alt="Preview Image" class="preview-image">` : ''}                        
-            <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="handleClickAndTrack(event, '${file}', '${excalidrawLink}')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
+            ${previewImageUrl ? `<img src="${previewImageUrl}" alt="Preview Image" class="preview-image">` : ''}                         
+            <div class="rita-download-wrapper" style="display: flex; flex-direction: column; align-items: center;">
+              <a href="${excalidrawLink}" class="button" target="_excalidraw" onclick="handleClickAndTrack(event, '${file}', '${excalidrawLink}')" aria-label="Open ${title} in Rita">Lägg till i Rita</a>
+              <p class="file-downloads" style="margin-top: 0.1rem; display: flex; align-items: center; gap: 0; margin: 0; margin-top: 0.3rem;" title="Antal nedladdningar">
+                <svg class="download-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" title="Antal nedladdningar">
+                  <circle cx="12" cy="12" r="10" fill="#9D0000"></circle>
+                  <path d="M12 16V6M12 16l4-4M12 16l-4-4" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                </svg>
+              <span class="download-count" title="Antal nedladdningar" style="font-weight: normal;">${downloadCount}</span>
+              </p>
+            </div>
           </div>
         </li>
       `;
@@ -874,8 +875,8 @@ app.get('/', (_req: Request, res: Response) => {
           <img src="/images/TV_Logo_Red.png" alt="Logo">
           <h1>Rita Bibliotek</h1>
 
-          <p>Här är en samling symboler som kan användas i Rita.</p>
-          <p class="sub">Klicka på länkarna för att lägga till</p>
+          <p>Här är en samling symboler som kan användas i Rita</p>
+          <p class="sub">Klicka på lägg till knappen för att importera i Rita</p>
 
           <!-- Search Form -->
           <form method="GET" action="/">
