@@ -867,7 +867,9 @@ app.get('/', (_req: Request, res: Response) => {
                   <circle cx="12" cy="12" r="10" fill="#9D0000"></circle>
                   <path d="M12 16V6M12 16l4-4M12 16l-4-4" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
                 </svg>
-              <span class="download-count" title="Antal nedladdningar" style="font-weight: normal;">${downloadCount}</span>
+              <span class="download-count" title="Antal nedladdningar" style="font-weight: normal;">
+                ${downloadCount >= 1000 ? `${(downloadCount / 1000).toFixed(1)}k` : downloadCount}
+              </span>
               </p>
             </div>
           </div>
