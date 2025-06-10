@@ -7,6 +7,7 @@ import sanitizeHtml from 'sanitize-html';
 import rateLimit from 'express-rate-limit';
 import expressBasicAuth from 'express-basic-auth';
 import os from 'os';
+import { collectDefaultMetrics, Counter, Histogram, Registry } from 'prom-client';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +17,29 @@ const filesDirectory = path.join(__dirname, '../files'); // Directory for stored
 const imagesPath = path.join(__dirname, '../images'); // Directory for images
 const publicPath = path.join(__dirname, '../public'); // Static assets like CSS
 const downloadCountsFile = path.join('/opt/app-root/src/files', 'downloadCounts.json');
+
+// Create a new Prometheus registry
+const register = new Registry();
+
+// Collect default metrics (e.g., process metrics)
+collectDefaultMetrics({ register });
+
+const httpRequestCounter = new Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status'],
+});
+
+const httpRequestDuration = new Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [0.1, 0.5, 1, 2, 5], // Define buckets for request durations
+});
+
+// Register custom metrics
+register.registerMetric(httpRequestCounter);
+register.registerMetric(httpRequestDuration);
 
 // Pagination configuration
 const FILES_PER_PAGE = 10; // Set the number of files per page
@@ -118,6 +142,30 @@ app.use(express.json());
 
 // Define a basic password for the /admin page
 const ADMIN_PASSWORD = process.env.ADMINPWD || 'admin';
+
+// Middleware to track HTTP requests
+app.use((req, res, next) => {
+  const start = Date.now();
+
+  res.on('finish', () => {
+    const duration = (Date.now() - start) / 1000; // Convert to seconds
+    httpRequestCounter.inc({ method: req.method, route: req.path, status: res.statusCode });
+    httpRequestDuration.observe({ method: req.method, route: req.path, status: res.statusCode }, duration);
+  });
+
+  next();
+});
+
+// Expose metrics endpoint for Prometheus
+app.get('/metrics', async (_req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (err) {
+    console.error('Error generating metrics:', err);
+    res.status(500).send('Error generating metrics');
+  }
+});
 
 // Basic authentication middleware
 app.use(
@@ -430,7 +478,7 @@ app.get('/admin', (_req: Request, res: Response) => {
           <p><strong>Du uppdaterar:</strong> ${file.baseName}.excalidrawlib</p>
           <form action="/admin/edit-excalidrawlib/${file.fileName}" method="POST" enctype="multipart/form-data">
             <div class="form-group">
-              <label for="excalidrawlib-upload-${file.baseName}" class="button">Välj ett nytt bibliotek</label>
+              <label for="excalidrawlib-upload-${file.baseName}" class="button">Välj ny biblioteksfil</label>
               <input type="file" name="file" accept=".excalidrawlib" id="excalidrawlib-upload-${file.baseName}" style="display:none;">
             </div>
             <button type="submit" class="button">Spara biblioteksfil</button>
@@ -753,7 +801,7 @@ app.get(
 app.get('/', (_req: Request, res: Response) => {
   const currentPage = parseInt(_req.query.page as string, 10) || 1;
   const searchQuery = (_req.query.search as string)?.trim().toLowerCase() || '';
-  const sortOption = (_req.query.sort as string)?.trim().toLowerCase() || '';
+  const sortOption = (_req.query.sort as string)?.trim().toLowerCase() || 'popular';
   const startIndex = (currentPage - 1) * FILES_PER_PAGE;
   const ritaToken = (_req.query.token as string)?.trim() || '';
 
@@ -899,18 +947,18 @@ app.get('/', (_req: Request, res: Response) => {
           <img src="/images/TV_Logo_Red.png" alt="Logo">
           <h1>Rita Bibliotek</h1>
 
-          <p>Här är en samling symboler som kan användas i Rita</p>
+          <p>Här är en samling färdiga skisser som kan användas i Rita</p>
           <p class="sub">Klicka på lägg till knappen för att importera i Rita</p>
 
           <!-- Search Form -->
           <form method="GET" action="/" class="search-sort-form">
             <input type="hidden" name="token" value="${ritaToken}">
-            <input type="text" name="search" placeholder="Sök efter symboler..." value="${searchQuery}">                      
+            <input type="text" name="search" placeholder="Sök efter skisser..." value="${searchQuery}">
 
             <select name="sort" id="sortSelect" class="sort-dropdown">
-              <option value="" ${!_req.query.sort ? 'selected' : ''}>📁 Sortera på: Namn A–Ö</option>
+              <option value="popular" ${!_req.query.sort || _req.query.sort === 'popular' ? 'selected' : ''}>⭐ Sortera på: Mest populära</option>
+              <option value="" ${_req.query.sort === '' ? 'selected' : ''}>📁 Sortera på: Namn A–Ö</option>
               <option value="reverse" ${_req.query.sort === 'reverse' ? 'selected' : ''}>📁 Sortera på: Namn Ö–A</option>
-              <option value="popular" ${_req.query.sort === 'popular' ? 'selected' : ''}>⭐ Sortera på: Mest populära</option>
             </select>
           
             <button type="submit" class="button">Sök</button>
