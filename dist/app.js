@@ -81,12 +81,32 @@ var sanitize_html_1 = __importDefault(require("sanitize-html"));
 var express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 var express_basic_auth_1 = __importDefault(require("express-basic-auth"));
 var os_1 = __importDefault(require("os"));
+var prom_client_1 = require("prom-client");
 var app = (0, express_1.default)();
 var PORT = process.env.PORT || 3000;
 // Define directories
 var filesDirectory = path_1.default.join(__dirname, '../files'); // Directory for stored files
 var imagesPath = path_1.default.join(__dirname, '../images'); // Directory for images
 var publicPath = path_1.default.join(__dirname, '../public'); // Static assets like CSS
+var downloadCountsFile = path_1.default.join('/opt/app-root/src/files', 'downloadCounts.json');
+// Create a new Prometheus registry
+var register = new prom_client_1.Registry();
+// Collect default metrics (e.g., process metrics)
+(0, prom_client_1.collectDefaultMetrics)({ register: register });
+var httpRequestCounter = new prom_client_1.Counter({
+    name: 'http_requests_total',
+    help: 'Total number of HTTP requests',
+    labelNames: ['method', 'route', 'status'],
+});
+var httpRequestDuration = new prom_client_1.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'Duration of HTTP requests in seconds',
+    labelNames: ['method', 'route', 'status'],
+    buckets: [0.1, 0.5, 1, 2, 5], // Define buckets for request durations
+});
+// Register custom metrics
+register.registerMetric(httpRequestCounter);
+register.registerMetric(httpRequestDuration);
 // Pagination configuration
 var FILES_PER_PAGE = 10; // Set the number of files per page
 // Ensure the files directory exists
@@ -142,6 +162,30 @@ var validateFileContent = function (filePath) {
         return false;
     }
 };
+var loadDownloadCounts = function () {
+    try {
+        if (fs_1.default.existsSync(downloadCountsFile)) {
+            var data = fs_1.default.readFileSync(downloadCountsFile, 'utf-8');
+            return JSON.parse(data);
+        }
+        else {
+            return {}; // Om filen inte finns, returnera ett tomt objekt
+        }
+    }
+    catch (error) {
+        console.error('Error loading download counts:', error);
+        return {}; // Återvänd med ett tomt objekt vid fel
+    }
+};
+var saveDownloadCounts = function (downloadCounts) {
+    try {
+        var data = JSON.stringify(downloadCounts, null, 2);
+        fs_1.default.writeFileSync(downloadCountsFile, data, 'utf-8');
+    }
+    catch (error) {
+        console.error('Error saving download counts:', error);
+    }
+};
 // Allow all origins
 var corsOptions = {
     origin: '*',
@@ -158,7 +202,39 @@ app.use('/files', (0, cors_1.default)(corsOptions), express_1.default.static(fil
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use(express_1.default.json());
 // Define a basic password for the /admin page
-var ADMIN_PASSWORD = process.env.ADMINPWD || 'default_secure_password';
+var ADMIN_PASSWORD = process.env.ADMINPWD || 'admin';
+// Middleware to track HTTP requests
+app.use(function (req, res, next) {
+    var start = Date.now();
+    res.on('finish', function () {
+        var duration = (Date.now() - start) / 1000; // Convert to seconds
+        httpRequestCounter.inc({ method: req.method, route: req.path, status: res.statusCode });
+        httpRequestDuration.observe({ method: req.method, route: req.path, status: res.statusCode }, duration);
+    });
+    next();
+});
+// Expose metrics endpoint for Prometheus
+app.get('/metrics', function (_req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var _a, _b, err_1;
+    return __generator(this, function (_c) {
+        switch (_c.label) {
+            case 0:
+                _c.trys.push([0, 2, , 3]);
+                res.set('Content-Type', register.contentType);
+                _b = (_a = res).end;
+                return [4 /*yield*/, register.metrics()];
+            case 1:
+                _b.apply(_a, [_c.sent()]);
+                return [3 /*break*/, 3];
+            case 2:
+                err_1 = _c.sent();
+                console.error('Error generating metrics:', err_1);
+                res.status(500).send('Error generating metrics');
+                return [3 /*break*/, 3];
+            case 3: return [2 /*return*/];
+        }
+    });
+}); });
 // Basic authentication middleware
 app.use('/admin', (0, express_basic_auth_1.default)({
     users: { admin: ADMIN_PASSWORD },
@@ -346,7 +422,6 @@ app.use(function (err, _req, res, next) {
         next(err);
     }
 });
-// Admin page to manage files (list and remove)// Admin page to manage files (list and remove)
 app.get('/admin', function (_req, res) {
     fs_1.default.readdir(filesDirectory, function (err, files) {
         if (err) {
@@ -374,12 +449,19 @@ app.get('/admin', function (_req, res) {
             catch (err) {
                 console.error("Error reading file metadata: ".concat(err.message));
             }
-            return "\n          <li class=\"file-item\">\n          <span><strong>".concat(title, "</strong> (").concat(file, ")</span>\n\n          <!-- Formul\u00E4r f\u00F6r att uppdatera titel, beskrivning och bild -->\n          <form action=\"/admin/edit/").concat(file, "\" method=\"POST\" enctype=\"multipart/form-data\" style=\"display:inline;\">\n            <div>\n              <input type=\"text\" name=\"title\" value=\"").concat(title, "\" placeholder=\"Titel\" required>\n            </div>\n            <div>\n              <input type=\"text\" name=\"description\" value=\"").concat(description, "\" placeholder=\"Beskrivning\" required>\n            </div>\n            <div>\n              <label for=\"image-upload\" class=\"button\">V\u00E4lj en ny bild att ladda upp</label>\n              <input type=\"file\" name=\"image\" accept=\"image/*\" id=\"image-upload\" style=\"display:none;\">\n            </div>\n            <div>\n              <button type=\"submit\" class=\"button\">Spara \u00E4ndringar</button>\n            </div>\n          </form>\n\n          <!-- Formul\u00E4r f\u00F6r att uppdatera excalidrawlib-fil -->\n          <form action=\"/admin/edit-excalidrawlib/").concat(file, "\" method=\"POST\" enctype=\"multipart/form-data\" style=\"display:inline;\">\n            <div>\n              <label for=\"excalidrawlib-upload-").concat(baseName, "\" class=\"button\">Uppdatera Excalidrawlib-fil</label>\n              <input type=\"file\" name=\"file\" accept=\".excalidrawlib\" id=\"excalidrawlib-upload-").concat(baseName, "\" style=\"display:none;\">\n            </div>\n            <div>\n              <button type=\"submit\" class=\"button\">Spara biblioteksfil</button>\n            </div>\n          </form>\n\n          <!-- Formul\u00E4r f\u00F6r att ta bort filen -->\n          <form action=\"/admin/remove/").concat(file, "\" method=\"POST\" style=\"display:inline;\" onsubmit=\"return confirmDelete();\">\n            <button type=\"submit\" class=\"button\">Ta bort hela bibliotek</button>\n          </form>\n          <br>\n\n          <script>\n            function confirmDelete() {\n              return confirm(\"\u00C4r du s\u00E4ker p\u00E5 att du vill ta bort detta bibliotek? Detta kan inte \u00E5ngras.\");\n            }\n          </script>\n\n          <!-- F\u00F6rhandsgranskning om bilden finns -->\n          ").concat(fs_1.default.existsSync(path_1.default.join(previewDirectory, "".concat(baseName, ".png")))
-                ? "<img src=\"".concat(previewImagePath, "\" alt=\"F\u00F6rhandsgranskning\" class=\"preview-image\">")
-                : "<p class=\"no-preview\">Ingen f\u00F6rhandsvisning tillg\u00E4nglig</p>", "\n        </li>\n        ");
-        })
-            .join('\n');
-        res.send("\n      <!DOCTYPE html>\n      <html lang=\"sv\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Ritabibliotek Admin</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">\n        <style>\n          .preview-image { max-width: 150px; display: block; margin-top: 5px; }\n          .no-preview { color: gray; font-size: 14px; }\n        </style>\n      </head>\n      <body>\n        <h1>Biblioteksadmin - Hantera filer i Rita Bibliotek :)</h1>\n        <p>Klicka f\u00F6r att ta bort en fil eller \u00E4ndra titel, beskrivning och bild</p>\n        <ul>".concat(fileList, "</ul>\n      </body>\n      </html>\n    "));
+            return {
+                fileName: file,
+                title: title,
+                description: description,
+                previewImagePath: previewImagePath,
+                baseName: baseName
+            };
+        });
+        var fileListHTML = fileList
+            .map(function (file) { return "\n        <li class=\"file-item\" data-title=\"".concat(file.title.toLowerCase(), "\" data-description=\"").concat(file.description.toLowerCase(), "\" data-filename=\"").concat(file.fileName.toLowerCase(), "\">\n          <span><strong>").concat(file.title, "</strong> (").concat(file.fileName, ")</span>\n\n          <!-- Formul\u00E4r f\u00F6r att uppdatera titel, beskrivning och bild -->\n          <section class=\"card\">\n          <h3>Redigera metadata</h3>\n          <form action=\"/admin/edit/").concat(file.fileName, "\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"form-group\">\n              <label for=\"title-").concat(file.baseName, "\">Titel</label>\n              <input type=\"text\" id=\"title-").concat(file.baseName, "\" name=\"title\" value=\"").concat(file.title, "\" required>\n            </div>\n            <div class=\"form-group\">\n              <label for=\"description-").concat(file.baseName, "\">Beskrivning</label>\n              <input type=\"text\" id=\"description-").concat(file.baseName, "\" name=\"description\" value=\"").concat(file.description, "\" required>\n            </div>\n            <div class=\"form-group\">\n              <label for=\"image-upload-").concat(file.baseName, "\" class=\"button\">V\u00E4lj ny bild</label>\n              <input type=\"file\" name=\"image\" accept=\"image/*\" id=\"image-upload-").concat(file.baseName, "\" style=\"display:none;\">\n            </div>\n            <button type=\"submit\" class=\"button\">Spara \u00E4ndringar</button>\n          </form>\n          </section>\n\n          <section class=\"card\">\n          <h3>Uppdatera Excalidraw-biblioteksfil</h3>\n          <p><strong>Du uppdaterar:</strong> ").concat(file.baseName, ".excalidrawlib</p>\n          <form action=\"/admin/edit-excalidrawlib/").concat(file.fileName, "\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"form-group\">\n              <label for=\"excalidrawlib-upload-").concat(file.baseName, "\" class=\"button\">V\u00E4lj ny biblioteksfil</label>\n              <input type=\"file\" name=\"file\" accept=\".excalidrawlib\" id=\"excalidrawlib-upload-").concat(file.baseName, "\" style=\"display:none;\">\n            </div>\n            <button type=\"submit\" class=\"button\">Spara biblioteksfil</button>\n          </form>\n          </section>\n\n          <!-- Formul\u00E4r f\u00F6r att ta bort filen -->\n          <form action=\"/admin/remove/").concat(file.fileName, "\" method=\"POST\" style=\"display:inline;\" onsubmit=\"return confirmDelete();\">\n            <button type=\"submit\" class=\"button\">Ta bort hela bibliotek</button>\n          </form>\n          <br>\n\n          <script>\n            function confirmDelete() {\n              return confirm(\"\u00C4r du s\u00E4ker p\u00E5 att du vill ta bort detta bibliotek? Detta kan inte \u00E5ngras.\");\n            }\n          </script>\n\n          <!-- F\u00F6rhandsgranskning om bilden finns -->\n          ").concat(fs_1.default.existsSync(path_1.default.join(previewDirectory, "".concat(file.baseName, ".png")))
+            ? "<img src=\"".concat(file.previewImagePath, "\" alt=\"F\u00F6rhandsgranskning\" class=\"preview-image\">")
+            : "<p class=\"no-preview\">Ingen f\u00F6rhandsvisning tillg\u00E4nglig</p>", "\n        </li>\n      "); }).join('\n');
+        res.send("\n      <!DOCTYPE html>\n      <html lang=\"sv\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Ritabibliotek Admin</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">\n        <style>\n          .preview-image { max-width: 150px; display: block; margin-top: 5px; }\n          .no-preview { color: gray; font-size: 14px; }\n          .toast {\n            position: fixed;\n            top: 1rem;\n            right: 1rem;\n            background: #d4edda;\n            color: #155724;\n            padding: 1rem 1.5rem;\n            border: 1px solid #c3e6cb;\n            border-radius: 8px;\n            box-shadow: 0 0 10px rgba(0,0,0,0.1);\n            font-weight: 600;\n            z-index: 9999;\n          }\n          #search {\n            padding: 0.5rem;\n            width: 300px;\n            border-radius: 6px;\n            border: 1px solid #ccc;\n            margin-bottom: 1rem;\n          }\n        </style>\n      </head>\n      <body>\n        <h1>Biblioteksadmin - Hantera filer i Rita - TRV bibliotek :)</h1>\n        <p>Klicka f\u00F6r att ta bort en fil eller \u00E4ndra titel, beskrivning och bild</p>\n\n        <label for=\"search\"><strong>\uD83D\uDD0D S\u00F6k bibliotek:</strong></label><br>\n        <input type=\"text\" id=\"search\" placeholder=\"S\u00F6k p\u00E5 titel eller filnamn...\">\n\n        <ul>".concat(fileListHTML, "</ul>\n\n        <script>\n          document.addEventListener(\"DOMContentLoaded\", () => {\n            // Toast notifierare\n            const params = new URLSearchParams(window.location.search);\n            const updatedFile = params.get(\"updated\");\n\n            if (updatedFile) {\n              const toast = document.createElement(\"div\");\n              toast.className = \"toast\";\n              toast.textContent = `\u2714\uFE0F Filen \"${updatedFile}\" har sparats.`;\n              document.body.appendChild(toast);\n\n              setTimeout(() => {\n                toast.remove();\n                window.history.replaceState({}, document.title, window.location.pathname);\n              }, 5000);\n            }\n\n            // \uD83D\uDD0E S\u00F6kfilter\n            const searchInput = document.getElementById(\"search\");\n            searchInput.addEventListener(\"input\", () => {\n              const query = searchInput.value.toLowerCase();\n              document.querySelectorAll(\".file-item\").forEach((item) => {\n                const title = item.getAttribute('data-title') || '';\n                const description = item.getAttribute('data-description') || '';\n                const fileName = item.getAttribute('data-filename') || '';\n                if (title.includes(query) || description.includes(query) || fileName.includes(query)) {\n                  item.style.display = \"\";\n                } else {\n                  item.style.display = \"none\";\n                }\n              });\n            });\n          });\n        </script>\n      </body>\n      </html>\n    "));
     });
 });
 app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function (req, res) {
@@ -402,7 +484,6 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function 
     try {
         var content = fs_1.default.readFileSync(uploadedFile.path, 'utf-8');
         jsonContent = JSON.parse(content);
-        // Enkel validering av Excalidrawlib-struktur
         if (!Array.isArray(jsonContent.libraryItems)) {
             throw new Error('Ogiltig excalidrawlib-struktur.');
         }
@@ -415,9 +496,24 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function 
     var newBaseName = path_1.default.basename(originalName, '.excalidrawlib');
     var newFilePath = path_1.default.join(filesDirectory, "".concat(newBaseName, ".excalidrawlib"));
     var oldFilePath = path_1.default.join(filesDirectory, "".concat(oldBaseName, ".excalidrawlib"));
+    var filenameChanged = false;
+    // ✅ 3. Om ny fil inte är samma som gamla, och krockar – hitta nytt unikt namn
+    if (oldBaseName !== newBaseName && fs_1.default.existsSync(newFilePath)) {
+        var counter = 1;
+        var candidateBaseName = void 0;
+        var candidatePath = void 0;
+        do {
+            candidateBaseName = "".concat(newBaseName, "(").concat(counter, ")");
+            candidatePath = path_1.default.join(filesDirectory, "".concat(candidateBaseName, ".excalidrawlib"));
+            counter++;
+        } while (fs_1.default.existsSync(candidatePath));
+        filenameChanged = true;
+        newBaseName = candidateBaseName;
+        newFilePath = candidatePath;
+        console.log("\u2139\uFE0F Filnamn krockade. Sparar ist\u00E4llet som: ".concat(newBaseName, ".excalidrawlib"));
+    }
     try {
         if (fs_1.default.existsSync(oldFilePath) && oldFilePath !== newFilePath) {
-            // Flytta Excalidraw-filen
             fs_1.default.unlinkSync(oldFilePath);
             var oldTitlePath = path_1.default.join(filesDirectory, "".concat(oldBaseName, "_title.txt"));
             var newTitlePath = path_1.default.join(filesDirectory, "".concat(newBaseName, "_title.txt"));
@@ -425,7 +521,6 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function 
             var newDescriptionPath = path_1.default.join(filesDirectory, "".concat(newBaseName, "_description.txt"));
             var oldPreviewPath = path_1.default.join(previewDirectory, "".concat(oldBaseName, ".png"));
             var newPreviewPath = path_1.default.join(previewDirectory, "".concat(newBaseName, ".png"));
-            // Flytta metadata om de finns
             if (fs_1.default.existsSync(oldTitlePath)) {
                 fs_1.default.renameSync(oldTitlePath, newTitlePath);
             }
@@ -436,11 +531,11 @@ app.post('/admin/edit-excalidrawlib/:filename', upload.single('file'), function 
                 fs_1.default.renameSync(oldPreviewPath, newPreviewPath);
             }
         }
-        // Spara nya Excalidraw-filen
         fs_1.default.copyFileSync(uploadedFile.path, newFilePath);
-        fs_1.default.unlinkSync(uploadedFile.path); // Ta bort tempfil
+        fs_1.default.unlinkSync(uploadedFile.path);
         console.log("\u2714\uFE0F Bibliotek uppdaterat: ".concat(newFilePath));
-        res.redirect('/admin');
+        // ✅ Redirect med nytt filnamn som query parameter
+        res.redirect("/admin?updated=".concat(encodeURIComponent(newBaseName), ".excalidrawlib"));
     }
     catch (err) {
         console.error('Fel vid uppdatering:', err);
@@ -481,8 +576,19 @@ app.post('/admin/edit/:filename', upload.single('image'), function (req, res) {
         res.status(500).send('Ett fel uppstod vid uppdatering av filinformationen.');
     }
 });
+app.post('/api/track-click', function (req, res) {
+    var fileName = req.body.fileName;
+    if (!fileName) {
+        res.status(400).send('Missing fileName');
+        return; // Skicka ett svar men utan att returnera något
+    }
+    var downloadCounts = loadDownloadCounts();
+    downloadCounts[fileName] = (downloadCounts[fileName] || 0) + 1;
+    saveDownloadCounts(downloadCounts);
+    res.status(200).send('Click tracked'); // Skicka ett svar utan att returnera något
+});
 app.post('/admin/remove/:filename', function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var filename, filePath, titleFilePath, descriptionFilePath, previewImagePath, err_1;
+    var filename, filePath, titleFilePath, descriptionFilePath, previewImagePath, err_2;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
@@ -525,8 +631,8 @@ app.post('/admin/remove/:filename', function (req, res) { return __awaiter(void 
                 res.redirect('/admin');
                 return [3 /*break*/, 11];
             case 10:
-                err_1 = _a.sent();
-                console.error('Error removing file:', err_1);
+                err_2 = _a.sent();
+                console.error('Error removing file:', err_2);
                 res.status(500).send('Error removing file.');
                 return [3 /*break*/, 11];
             case 11: return [2 /*return*/];
@@ -552,87 +658,99 @@ app.get('/files/:filename', function (req, res, next) {
 });
 // Route to list files with pagination and search
 app.get('/', function (_req, res) {
-    var _a, _b;
-    // Get the current page and search query from query parameters
+    var _a, _b, _c;
     var currentPage = parseInt(_req.query.page, 10) || 1;
     var searchQuery = ((_a = _req.query.search) === null || _a === void 0 ? void 0 : _a.trim().toLowerCase()) || '';
+    var sortOption = ((_b = _req.query.sort) === null || _b === void 0 ? void 0 : _b.trim().toLowerCase()) || 'popular';
     var startIndex = (currentPage - 1) * FILES_PER_PAGE;
-    var ritaToken = ((_b = _req.query.token) === null || _b === void 0 ? void 0 : _b.trim()) || '';
+    var ritaToken = ((_c = _req.query.token) === null || _c === void 0 ? void 0 : _c.trim()) || '';
+    var downloadCounts = loadDownloadCounts();
     fs_1.default.readdir(filesDirectory, function (err, files) {
         if (err) {
             console.error("Error reading directory: ".concat(err.message));
             res.status(500).send('Error reading files.');
             return;
         }
-        // Filter out non-excalidrawlib files and list only .excalidrawlib files
         var excalidrawFiles = files.filter(function (file) { return path_1.default.extname(file) === '.excalidrawlib'; });
-        // If a search query exists, filter files based on the search in both title and description
         var filteredFiles = excalidrawFiles.filter(function (file) {
             var fileNameWithoutExt = path_1.default.parse(file).name;
-            // Paths for title and description files
             var titleFilePath = path_1.default.join(filesDirectory, "".concat(fileNameWithoutExt, "_title.txt"));
             var descriptionFilePath = path_1.default.join(filesDirectory, "".concat(fileNameWithoutExt, "_description.txt"));
-            // Check if the title file exists and is not empty
             if (fs_1.default.existsSync(titleFilePath)) {
                 var title = fs_1.default.readFileSync(titleFilePath, 'utf-8').trim();
-                if (!title) {
-                    return false; // Skip files with an empty title
-                }
+                if (!title)
+                    return false;
             }
             else {
-                return false; // Skip files without a title file
+                return false;
             }
-            // Read the description, if it exists
             var description = fs_1.default.existsSync(descriptionFilePath)
                 ? fs_1.default.readFileSync(descriptionFilePath, 'utf-8').trim()
                 : 'No description available';
-            // Check if either title or description matches the search query
             return (fileNameWithoutExt.includes(searchQuery) ||
                 description.toLowerCase().includes(searchQuery));
         });
-        // Get only the files for the current page
+        if (sortOption === 'popular') {
+            filteredFiles.sort(function (a, b) {
+                var countA = downloadCounts[a] || 0;
+                var countB = downloadCounts[b] || 0;
+                return countB - countA;
+            });
+        }
+        else if (sortOption === 'reverse') {
+            filteredFiles.sort(function (a, b) {
+                var titleA = path_1.default.parse(a).name.toLowerCase();
+                var titleB = path_1.default.parse(b).name.toLowerCase();
+                return titleB.localeCompare(titleA);
+            });
+        }
+        else {
+            // Default A–Ö
+            filteredFiles.sort(function (a, b) {
+                var titleA = path_1.default.parse(a).name.toLowerCase();
+                var titleB = path_1.default.parse(b).name.toLowerCase();
+                return titleA.localeCompare(titleB);
+            });
+        }
         var paginatedFiles = filteredFiles.slice(startIndex, startIndex + FILES_PER_PAGE);
-        var fileList = paginatedFiles
-            .map(function (file) {
+        var fileList = paginatedFiles.map(function (file) {
             var fileNameWithoutExt = path_1.default.parse(file).name;
             var titleFilePath = path_1.default.join(filesDirectory, "".concat(fileNameWithoutExt, "_title.txt"));
             var descriptionFilePath = path_1.default.join(filesDirectory, "".concat(fileNameWithoutExt, "_description.txt"));
-            var title = 'Untitled'; // Default title when no title is found
-            var description = 'No description available'; // Default description when no description is found
-            // Read title file and update title if it exists and is non-empty
+            var title = 'Untitled';
+            var description = 'No description available';
             if (fs_1.default.existsSync(titleFilePath)) {
                 var titleFromFile = fs_1.default.readFileSync(titleFilePath, 'utf-8').trim();
-                if (titleFromFile) {
+                if (titleFromFile)
                     title = titleFromFile;
-                }
             }
-            // Read description file and update description if it exists and is non-empty
             if (fs_1.default.existsSync(descriptionFilePath)) {
-                var descriptionFromFile = fs_1.default
-                    .readFileSync(descriptionFilePath, 'utf-8')
-                    .trim();
-                if (descriptionFromFile) {
+                var descriptionFromFile = fs_1.default.readFileSync(descriptionFilePath, 'utf-8').trim();
+                if (descriptionFromFile)
                     description = descriptionFromFile;
-                }
             }
             var baseLibraryUrl = process.env.BASE_LIBRARY_URL;
             var baseApp = process.env.BASE_APP;
-            // const baseLibraryUrl = 'https://ritamallar-utv.sp.trafikverket.se';
-            // const baseApp = 'rita-utv.sp.trafikverket.se';
             var excalidrawLink = "https://".concat(baseApp, "#addLibrary=").concat(encodeURIComponent("".concat(baseLibraryUrl, "/files/").concat(file)), "&token=").concat(ritaToken);
-            // Check if a preview image exists
-            var previewImagePath = path_1.default.join(previewDirectory, "".concat(fileNameWithoutExt, ".png"));
-            var previewImageUrl = fs_1.default.existsSync(previewImagePath) ? "/uploads/previews/".concat(fileNameWithoutExt, ".png") : '';
-            return " \n        <li class=\"file-item\">\n          <div class=\"file-icon\">\uD83D\uDCC4</div>\n          <div class=\"file-info\">\n            <strong class=\"file-title\">".concat(title, "</strong>\n            <p class=\"file-description\">").concat(description, "</p>\n            ").concat(previewImageUrl ? "<img src=\"".concat(previewImageUrl, "\" alt=\"Preview Image\" class=\"preview-image\">") : '', "\n            <a href=\"").concat(excalidrawLink, "\" class=\"button\" target=\"_excalidraw\" onclick=\"trackEvent('library', 'import', 'itsmestefanjay-camunda-platform-icons')\" aria-label=\"Open ").concat(title, " in Rita\">L\u00E4gg till i Rita</a>\n          </div>\n        </li>\n      ");
-        })
-            .join(' ');
-        // Generate pagination links
+            var possibleExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+            var previewImageUrl = '';
+            for (var _i = 0, possibleExtensions_1 = possibleExtensions; _i < possibleExtensions_1.length; _i++) {
+                var ext = possibleExtensions_1[_i];
+                var previewImagePath = path_1.default.join(tempPreviewDirectory, "".concat(fileNameWithoutExt).concat(ext));
+                if (fs_1.default.existsSync(previewImagePath)) {
+                    previewImageUrl = "/uploads/previews/".concat(fileNameWithoutExt).concat(ext);
+                    break;
+                }
+            }
+            var downloadCount = downloadCounts[file] || 0; // 🆕 Läs antal nedladdningar
+            return "\n        <li class=\"file-item\">\n          <div class=\"file-icon\">\uD83D\uDCC4</div>\n          <div class=\"file-info\">\n            <strong class=\"file-title\">".concat(title, "</strong>            \n            <p class=\"file-description\">").concat(description, "</p>            \n            ").concat(previewImageUrl ? "<img src=\"".concat(previewImageUrl, "\" alt=\"Preview Image\" class=\"preview-image\">") : '', "                         \n            <div class=\"rita-download-wrapper\" style=\"display: flex; flex-direction: column; align-items: center;\">\n              <a href=\"").concat(excalidrawLink, "\" class=\"button\" target=\"_excalidraw\" onclick=\"handleClickAndTrack(event, '").concat(file, "', '").concat(excalidrawLink, "')\" aria-label=\"Open ").concat(title, " in Rita\">L\u00E4gg till i Rita</a>\n              <p class=\"file-downloads\" style=\"margin-top: 0.1rem; display: flex; align-items: center; gap: 0; margin: 0; margin-top: 0.3rem;\" title=\"Antal nedladdningar\">\n                <svg class=\"download-icon\" xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" title=\"Antal nedladdningar\">\n                  <circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"#9D0000\"></circle>\n                  <path d=\"M12 16V6M12 16l4-4M12 16l-4-4\" stroke=\"white\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\"></path>\n                </svg>\n              <span class=\"download-count\" title=\"Antal nedladdningar\" style=\"font-weight: normal;\">\n                ").concat(downloadCount >= 1000 ? "".concat((downloadCount / 1000).toFixed(1), "k") : downloadCount, "\n              </span>\n              </p>\n            </div>\n          </div>\n        </li>\n      ");
+        }).join(' ');
         var totalPages = Math.ceil(filteredFiles.length / FILES_PER_PAGE);
         var paginationLinks = Array.from({ length: totalPages }, function (_, index) {
             var pageNumber = index + 1;
-            return "<a href=\"/?page=".concat(pageNumber, "&search=").concat(searchQuery, "&token=").concat(ritaToken, "\" class=\"page-link\">").concat(pageNumber, "</a>");
+            return "<a href=\"/?page=".concat(pageNumber, "&search=").concat(searchQuery, "&sort=").concat(sortOption, "&token=").concat(ritaToken, "\" class=\"page-link\">").concat(pageNumber, "</a>");
         }).join(' ');
-        res.send("<!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Rita Bibliotek</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">        \n        <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/images/favicon-32x32.png\" />\n        <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/images/favicon-16x16.png\" />\n      </head>\n      <body>\n        <div class=\"content\">\n          <img src=\"/images/TV_Logo_Red.png\" alt=\"Logo\">\n          <h1>Rita Bibliotek</h1>\n\n          <p>H\u00E4r \u00E4r en samling symboler som kan anv\u00E4ndas i Rita.</p>\n          <p class=\"sub\">Klicka p\u00E5 l\u00E4nkarna f\u00F6r att l\u00E4gga till</p>\n\n          <!-- Search Form -->\n          <form method=\"GET\" action=\"/\">\n            <input type=\"hidden\" name=\"token\" value=\"".concat(ritaToken, "\">\n            <input type=\"text\" name=\"search\" placeholder=\"S\u00F6k efter symboler...\" value=\"").concat(searchQuery, "\">\n            <button type=\"submit\" class=\"button\">S\u00F6k</button>\n          </form>\n\n          <ul>").concat(fileList, "</ul>\n\n          <div class=\"pagination\">\n            ").concat(paginationLinks, "\n          </div>\n\n          <!-- Line separating the upload section -->\n          <hr class=\"upload-separator\">        \n\n          <!-- Upload Form -->\n          <form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"upload-group\">\n              <div class=\"file-upload-container\">\n                <label for=\"file-upload\" class=\"custom-file-upload button\">\n                  L\u00E4gg till biblioteksfil\n                </label>\n                <input id=\"file-upload\" type=\"file\" name=\"file\" accept=\".excalidrawlib\" required>\n              </div>\n\n               <div class=\"image-upload-container\">\n              <label for=\"image-upload\" class=\"custom-file-upload button\">\n                L\u00E4gg till f\u00F6rhandsvisningsbild\n              </label>\n              <input id=\"image-upload\" type=\"file\" name=\"image\" accept=\"image/*\" required>\n              <div id=\"image-preview\" style=\"display:none;\">\n                <h3>F\u00F6rhandsgranskning av bild:</h3>\n                <img id=\"preview\" src=\"\" alt=\"Image Preview\" style=\"max-width: 300px; max-height: 300px;\">\n              </div>\n            </div>  \n\n              <div id=\"selected-file\" style=\"display:none;\">\n                <p><strong>Vald fil:</strong> <span id=\"file-name\"></span></p>\n              </div>\n\n              <div class=\"title-container\">\n                <label for=\"title\">Titel:</label>\n                <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Skriv en titel h\u00E4r...\" required>\n              </div>\n\n              <div class=\"description-container\">\n                <label for=\"description\">Beskrivning:</label>\n                <textarea id=\"description\" name=\"description\" rows=\"4\" cols=\"50\" placeholder=\"Skriv en beskrivning av biblioteket h\u00E4r...\" required></textarea>\n              </div>\n\n              <div class=\"button-container\">\n                <button type=\"submit\" class=\"button\" id=\"save-button\" disabled>Spara</button>\n              </div>\n\n              <!-- Display the status \"v\u00E4ntar\" after file upload -->\n              <div id=\"upload-status\" style=\"display:none;\">\n                V\u00E4ntar p\u00E5 uppladdning...\n              </div>\n            </div>\n          </form>\n          <script>\n          // JavaScript f\u00F6r bildpreview\n            document.getElementById('image-upload').addEventListener('change', function(event) {\n              const file = event.target.files[0];\n              if (file && file.type.startsWith('image/')) {\n                const reader = new FileReader();\n                reader.onload = function(e) {\n                  document.getElementById('preview').src = e.target.result;\n                  document.getElementById('image-preview').style.display = 'block';\n                };\n                reader.readAsDataURL(file);\n              }\n            });\n          </script>\n\n          <script>\n            const fileInput = document.getElementById('file-upload');\n            const imageInput = document.getElementById('image-upload');\n            const saveButton = document.getElementById('save-button');\n            const selectedFileDiv = document.getElementById('selected-file');\n            const fileNameSpan = document.getElementById('file-name');\n            const uploadStatus = document.getElementById('upload-status');\n\n            // Initially disable the save button\n            saveButton.disabled = true;\n\n            function checkFilesSelected() {\n              if (fileInput.files.length > 0 && imageInput.files.length > 0) {\n                saveButton.disabled = false;\n              } else {\n                saveButton.disabled = true;\n              }\n            }\n\n            fileInput.addEventListener('change', function() {\n              // Check if a file is selected\n              if (fileInput.files.length > 0) {\n                // Show the selected file name\n                const selectedFileName = fileInput.files[0].name;\n                fileNameSpan.textContent = selectedFileName;\n                selectedFileDiv.style.display = 'block'; // Show the file name\n              } else {\n                selectedFileDiv.style.display = 'none'; // Hide the file name\n              }\n              checkFilesSelected();\n            });\n\n            imageInput.addEventListener('change', checkFilesSelected);\n\n            // Prevent form submission if no file is selected (only for upload form)\n            document.querySelector('form[action=\"/upload\"]').addEventListener('submit', function(event) {\n              if (fileInput.files.length === 0 || imageInput.files.length === 0) {\n                event.preventDefault(); // Prevent form submission\n                alert('Du m\u00E5ste v\u00E4lja b\u00E5de en fil och en f\u00F6rhandsvisningsbild!'); // Notify user\n              }\n            });\n          </script>\n        </div>\n        <footer>\n          <div class=\"footer-content\">\n            <p>&copy; 2025 Rita Bibliotek</p>\n            <p>\n              Kontakta oss p\u00E5\n              <a href=\"mailto:rita@trafikverket.se\">rita@trafikverket.se</a>\n              eller p\u00E5 <a href=\"https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita\" target=\"_blank\">Mattermost</a>\n              f\u00F6r fr\u00E5gor eller feedback.\n            </p>\n          </div>\n        </footer>\n      </body>\n    </html>\n    "));
+        res.send("<!DOCTYPE html>\n      <html lang=\"en\">\n      <head>\n        <meta charset=\"UTF-8\">\n        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n        <title>Rita Bibliotek</title>\n        <link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap\" rel=\"stylesheet\">\n        <link rel=\"stylesheet\" href=\"/css/styles.css\">        \n        <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/images/favicon-32x32.png\" />\n        <link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/images/favicon-16x16.png\" />\n      </head>\n      <body>\n        <div class=\"content\">\n          <img src=\"/images/TV_Logo_Red.png\" alt=\"Logo\">\n          <h1>Rita Bibliotek</h1>\n\n          <p>H\u00E4r \u00E4r en samling f\u00E4rdiga skisser som kan anv\u00E4ndas i Rita</p>\n          <p class=\"sub\">Klicka p\u00E5 l\u00E4gg till knappen f\u00F6r att importera i Rita</p>\n\n          <!-- Search Form -->\n          <form method=\"GET\" action=\"/\" class=\"search-sort-form\">\n            <input type=\"hidden\" name=\"token\" value=\"".concat(ritaToken, "\">\n            <input type=\"text\" name=\"search\" placeholder=\"S\u00F6k efter skisser...\" value=\"").concat(searchQuery, "\">\n\n            <select name=\"sort\" id=\"sortSelect\" class=\"sort-dropdown\">\n              <option value=\"popular\" ").concat(!_req.query.sort || _req.query.sort === 'popular' ? 'selected' : '', ">\u2B50 Sortera p\u00E5: Mest popul\u00E4ra</option>\n              <option value=\"\" ").concat(_req.query.sort === '' ? 'selected' : '', ">\uD83D\uDCC1 Sortera p\u00E5: Namn A\u2013\u00D6</option>\n              <option value=\"reverse\" ").concat(_req.query.sort === 'reverse' ? 'selected' : '', ">\uD83D\uDCC1 Sortera p\u00E5: Namn \u00D6\u2013A</option>\n            </select>\n          \n            <button type=\"submit\" class=\"button\">S\u00F6k</button>\n          </form>\n\n          <ul>").concat(fileList, "</ul>\n\n          <div class=\"pagination\">\n            ").concat(paginationLinks, "\n          </div>\n\n          <!-- Line separating the upload section -->\n          <hr class=\"upload-separator\">        \n\n          <!-- Upload Form -->\n          <form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">\n            <div class=\"upload-group\">\n              <div class=\"file-upload-container\">\n                <label for=\"file-upload\" class=\"custom-file-upload button\">\n                  L\u00E4gg till biblioteksfil\n                </label>\n                <input id=\"file-upload\" type=\"file\" name=\"file\" accept=\".excalidrawlib\" required>\n              </div>\n\n               <div class=\"image-upload-container\">\n              <label for=\"image-upload\" class=\"custom-file-upload button\">\n                L\u00E4gg till f\u00F6rhandsvisningsbild\n              </label>\n              <input id=\"image-upload\" type=\"file\" name=\"image\" accept=\"image/*\" required>\n              <div id=\"image-preview\" style=\"display:none;\">\n                <h3>F\u00F6rhandsgranskning av bild:</h3>\n                <img id=\"preview\" src=\"\" alt=\"Image Preview\" style=\"max-width: 300px; max-height: 300px;\">\n              </div>\n            </div>  \n\n              <div id=\"selected-file\" style=\"display:none;\">\n                <p><strong>Vald fil:</strong> <span id=\"file-name\"></span></p>\n              </div>\n\n              <div class=\"title-container\">\n                <label for=\"title\">Titel:</label>\n                <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Skriv en titel h\u00E4r...\" required>\n              </div>\n\n              <div class=\"description-container\">\n                <label for=\"description\">Beskrivning:</label>\n                <textarea id=\"description\" name=\"description\" rows=\"4\" cols=\"50\" placeholder=\"Skriv en beskrivning av biblioteket h\u00E4r...\" required></textarea>\n              </div>\n\n              <div class=\"button-container\">\n                <button type=\"submit\" class=\"button\" id=\"save-button\" disabled>Spara</button>\n              </div>\n\n              <!-- Display the status \"v\u00E4ntar\" after file upload -->\n              <div id=\"upload-status\" style=\"display:none;\">\n                V\u00E4ntar p\u00E5 uppladdning...\n              </div>\n            </div>\n          </form>\n          <script>\n          // JavaScript f\u00F6r bildpreview\n            document.getElementById('image-upload').addEventListener('change', function(event) {\n              const file = event.target.files[0];\n              if (file && file.type.startsWith('image/')) {\n                const reader = new FileReader();\n                reader.onload = function(e) {\n                  document.getElementById('preview').src = e.target.result;\n                  document.getElementById('image-preview').style.display = 'block';\n                };\n                reader.readAsDataURL(file);\n              }\n            });\n          </script>\n\n          <script>\n            document.getElementById('sortSelect').addEventListener('change', function () {\n              this.form.submit(); // submit parent form direkt n\u00E4r man byter sortering\n            });\n          </script>\n\n          <script>\n            const fileInput = document.getElementById('file-upload');\n            const imageInput = document.getElementById('image-upload');\n            const saveButton = document.getElementById('save-button');\n            const selectedFileDiv = document.getElementById('selected-file');\n            const fileNameSpan = document.getElementById('file-name');\n            const uploadStatus = document.getElementById('upload-status');\n\n            // Initially disable the save button\n            saveButton.disabled = true;\n\n            function checkFilesSelected() {\n              if (fileInput.files.length > 0 && imageInput.files.length > 0) {\n                saveButton.disabled = false;\n              } else {\n                saveButton.disabled = true;\n              }\n            }\n\n            fileInput.addEventListener('change', function() {\n              // Check if a file is selected\n              if (fileInput.files.length > 0) {\n                // Show the selected file name\n                const selectedFileName = fileInput.files[0].name;\n                fileNameSpan.textContent = selectedFileName;\n                selectedFileDiv.style.display = 'block'; // Show the file name\n              } else {\n                selectedFileDiv.style.display = 'none'; // Hide the file name\n              }\n              checkFilesSelected();\n            });\n\n            imageInput.addEventListener('change', checkFilesSelected);\n\n            // Prevent form submission if no file is selected (only for upload form)\n            document.querySelector('form[action=\"/upload\"]').addEventListener('submit', function(event) {\n              if (fileInput.files.length === 0 || imageInput.files.length === 0) {\n                event.preventDefault(); // Prevent form submission\n                alert('Du m\u00E5ste v\u00E4lja b\u00E5de en fil och en f\u00F6rhandsvisningsbild!'); // Notify user\n              }\n            });\n          </script>\n          <script>\n          function trackClick(fileName) {\n            fetch('/api/track-click', {\n              method: 'POST',\n              headers: {\n                'Content-Type': 'application/json',\n              },\n              body: JSON.stringify({ fileName }),\n            })\n            .then(response => {\n              if (!response.ok) {\n                console.error('Failed to track click');\n              } else {\n                console.log('Click tracked successfully');\n              }\n            })\n            .catch(error => {\n              console.error('Error:', error);\n            });\n          }\n          </script>\n          <script>\n          function handleClickAndTrack(event, fileName, excalidrawLink) {\n            // F\u00F6rhindra att l\u00E4nken f\u00F6ljer standardbeteendet (dvs. navigera direkt)\n            event.preventDefault();\n\n            // Sp\u00E5ra klicket\n            trackClick(fileName);\n\n            // \u00D6ppna l\u00E4nken manuellt i ett nytt f\u00F6nster\n            window.open(excalidrawLink, '_excalidraw');\n          }\n          </script>\n        </div>\n        <footer>\n          <div class=\"footer-content\">\n            <p>&copy; 2025 Rita Bibliotek</p>\n            <p>\n              Kontakta oss p\u00E5\n              <a href=\"mailto:rita@trafikverket.se\">rita@trafikverket.se</a>\n              eller p\u00E5 <a href=\"https://mattermost.trafikverket.local/digitalt-samarbete/channels/rita\" target=\"_blank\">Mattermost</a>\n              f\u00F6r fr\u00E5gor eller feedback.\n            </p>\n          </div>\n        </footer>\n      </body>\n    </html>\n    "));
     });
 });
 app.post('/admin/edit', upload.fields([
